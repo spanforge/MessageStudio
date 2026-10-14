@@ -1,0 +1,799 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sriram-advisory:linkedin-formatter:draft:1",
+  "title": "Message Studio draft with additive v3 bundle",
+  "$ref": "#/$defs/draft",
+  "$comment": "Legacy schemaVersion 1 remains readable. Optional studio.bundleSchemaVersion 3 adds the current model. Runtime validates 50,000 graphemes, 20,000 nodes, canonical cache integrity, unique IDs and dangling references.",
+  "$defs": {
+    "preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "theme": {
+          "enum": [
+            "light",
+            "dark"
+          ]
+        },
+        "guidance": {
+          "type": "boolean"
+        },
+        "dismissedIntro": {
+          "type": "boolean"
+        },
+        "unicodeDisabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "mark": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "enum": [
+                "bold",
+                "italic",
+                "underline",
+                "strike"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "attrs"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "family"
+            },
+            "attrs": {
+              "type": "object",
+              "required": [
+                "family"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "family": {
+                  "enum": [
+                    "sans",
+                    "serif"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "inline": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "text"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "text"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\r\\n]+$"
+            },
+            "marks": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/mark"
+              },
+              "maxItems": 4
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "hardBreak"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "attrs"
+          ],
+          "properties": {
+            "type": {
+              "const": "sharedDetail"
+            },
+            "attrs": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "detailId",
+                "value"
+              ],
+              "properties": {
+                "detailId": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "value": {
+                  "type": "string",
+                  "maxLength": 5000
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "paragraph": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "paragraph"
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "listType": {
+              "enum": [
+                null,
+                "hyphen",
+                "bullet",
+                "number"
+              ]
+            }
+          }
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/inline"
+          }
+        }
+      }
+    },
+    "doc": {
+      "type": "object",
+      "required": [
+        "type",
+        "content"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "doc"
+        },
+        "content": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20000,
+          "items": {
+            "$ref": "#/$defs/paragraph"
+          }
+        }
+      }
+    },
+    "draft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "title",
+        "createdAt",
+        "updatedAt",
+        "revision",
+        "editorDocument",
+        "preferences"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "editorDocument": {
+          "$ref": "#/$defs/doc"
+        },
+        "preferences": {
+          "$ref": "#/$defs/preferences"
+        },
+        "studio": {
+          "$ref": "#/$defs/studio"
+        }
+      }
+    },
+    "brand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "spelling",
+        "alternatives",
+        "website",
+        "cta",
+        "phrases",
+        "unicode",
+        "revision"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "spelling": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "alternatives": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "maxLength": 5000
+          }
+        },
+        "website": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "cta": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "phrases": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "maxLength": 5000
+          }
+        },
+        "unicode": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "studio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundleSchemaVersion",
+        "mode",
+        "activeDestination",
+        "editingOriginal",
+        "originalRevision",
+        "unicode",
+        "emailRich",
+        "objective",
+        "versions",
+        "sharedDetails",
+        "exceptions"
+      ],
+      "properties": {
+        "bundleSchemaVersion": {
+          "const": 3
+        },
+        "mode": {
+          "enum": [
+            "quick",
+            "studio"
+          ]
+        },
+        "activeDestination": {
+          "enum": [
+            "linkedin",
+            "whatsapp",
+            "email",
+            "generic"
+          ]
+        },
+        "editingOriginal": {
+          "type": "boolean"
+        },
+        "originalRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unicode": {
+          "type": "boolean"
+        },
+        "emailRich": {
+          "type": "boolean"
+        },
+        "objective": {
+          "enum": [
+            "general",
+            "awareness",
+            "trial",
+            "activation",
+            "reengagement"
+          ]
+        },
+        "brief": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requiredDetailIds",
+            "revision",
+            "updatedAt"
+          ],
+          "properties": {
+            "audienceText": {
+              "type": "string",
+              "maxLength": 5000
+            },
+            "customerProblemText": {
+              "type": "string",
+              "maxLength": 5000
+            },
+            "productName": {
+              "type": "string",
+              "maxLength": 5000
+            },
+            "valueStatement": {
+              "type": "string",
+              "maxLength": 5000
+            },
+            "differentiationEvidence": {
+              "type": "string",
+              "maxLength": 5000
+            },
+            "desiredActionText": {
+              "type": "string",
+              "maxLength": 5000
+            },
+            "desiredActionUrl": {
+              "type": "string",
+              "maxLength": 5000
+            },
+            "requiredDetailIds": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "linkedin": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "basedOnOriginalRevision",
+                "revision",
+                "subject"
+              ],
+              "properties": {
+                "overrideDocument": {
+                  "$ref": "#/$defs/doc"
+                },
+                "basedOnOriginalRevision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "subject": {
+                  "$ref": "#/$defs/doc"
+                },
+                "receipt": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "hash",
+                    "mode",
+                    "copiedAt",
+                    "profileVersion",
+                    "originalRevision",
+                    "versionRevision"
+                  ],
+                  "properties": {
+                    "hash": {
+                      "type": "string",
+                      "maxLength": 160
+                    },
+                    "mode": {
+                      "enum": [
+                        "plain",
+                        "text",
+                        "rich"
+                      ]
+                    },
+                    "copiedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "profileVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "originalRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "versionRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            },
+            "whatsapp": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "basedOnOriginalRevision",
+                "revision",
+                "subject"
+              ],
+              "properties": {
+                "overrideDocument": {
+                  "$ref": "#/$defs/doc"
+                },
+                "basedOnOriginalRevision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "subject": {
+                  "$ref": "#/$defs/doc"
+                },
+                "receipt": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "hash",
+                    "mode",
+                    "copiedAt",
+                    "profileVersion",
+                    "originalRevision",
+                    "versionRevision"
+                  ],
+                  "properties": {
+                    "hash": {
+                      "type": "string",
+                      "maxLength": 160
+                    },
+                    "mode": {
+                      "enum": [
+                        "plain",
+                        "text",
+                        "rich"
+                      ]
+                    },
+                    "copiedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "profileVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "originalRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "versionRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            },
+            "email": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "basedOnOriginalRevision",
+                "revision",
+                "subject"
+              ],
+              "properties": {
+                "overrideDocument": {
+                  "$ref": "#/$defs/doc"
+                },
+                "basedOnOriginalRevision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "subject": {
+                  "$ref": "#/$defs/doc"
+                },
+                "receipt": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "hash",
+                    "mode",
+                    "copiedAt",
+                    "profileVersion",
+                    "originalRevision",
+                    "versionRevision"
+                  ],
+                  "properties": {
+                    "hash": {
+                      "type": "string",
+                      "maxLength": 160
+                    },
+                    "mode": {
+                      "enum": [
+                        "plain",
+                        "text",
+                        "rich"
+                      ]
+                    },
+                    "copiedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "profileVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "originalRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "versionRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            },
+            "generic": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "basedOnOriginalRevision",
+                "revision",
+                "subject"
+              ],
+              "properties": {
+                "overrideDocument": {
+                  "$ref": "#/$defs/doc"
+                },
+                "basedOnOriginalRevision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "subject": {
+                  "$ref": "#/$defs/doc"
+                },
+                "receipt": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "hash",
+                    "mode",
+                    "copiedAt",
+                    "profileVersion",
+                    "originalRevision",
+                    "versionRevision"
+                  ],
+                  "properties": {
+                    "hash": {
+                      "type": "string",
+                      "maxLength": 160
+                    },
+                    "mode": {
+                      "enum": [
+                        "plain",
+                        "text",
+                        "rich"
+                      ]
+                    },
+                    "copiedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "profileVersion": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "originalRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "versionRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "sharedDetails": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "kind",
+              "canonicalValue",
+              "revision",
+              "requiredDestinations"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 160
+              },
+              "kind": {
+                "enum": [
+                  "date",
+                  "price",
+                  "name",
+                  "link",
+                  "phrase"
+                ]
+              },
+              "canonicalValue": {
+                "type": "string",
+                "maxLength": 5000
+              },
+              "targetUrl": {
+                "type": "string",
+                "maxLength": 5000
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "requiredDestinations": {
+                "type": "array",
+                "maxItems": 4,
+                "items": {
+                  "enum": [
+                    "linkedin",
+                    "whatsapp",
+                    "email",
+                    "generic"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "exceptions": {
+          "type": "array",
+          "maxItems": 400,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "detailId",
+              "destination",
+              "revision",
+              "reason"
+            ],
+            "properties": {
+              "detailId": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "destination": {
+                "enum": [
+                  "linkedin",
+                  "whatsapp",
+                  "email",
+                  "generic"
+                ]
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 500
+              }
+            }
+          }
+        },
+        "brandProfileSnapshot": {
+          "$ref": "#/$defs/brand"
+        },
+        "campaign": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "trashedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

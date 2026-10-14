@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sriram-advisory:linkedin-formatter:backup:1",
+  "title": "Message Studio workspace backup (legacy envelope, v3 bundles)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "drafts",
+    "snippets",
+    "preferences",
+    "recent"
+  ],
+  "$comment": "Runtime enforces a 10 MiB import cap, 50 drafts including Trash, 100 snippets, 5,000 snippet graphemes, reference integrity and consistent remapping. Incoming copy receipts are discarded on import.",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "backup"
+    },
+    "drafts": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "draft.schema.json#/$defs/draft"
+      }
+    },
+    "snippets": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        }
+      }
+    },
+    "preferences": {
+      "allOf": [
+        {
+          "$ref": "draft.schema.json#/$defs/preferences"
+        },
+        {
+          "required": [
+            "theme",
+            "guidance",
+            "dismissedIntro"
+          ]
+        }
+      ]
+    },
+    "recent": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "string",
+        "maxLength": 100
+      }
+    },
+    "brandProfile": {
+      "$ref": "draft.schema.json#/$defs/brand"
+    }
+  }
+}

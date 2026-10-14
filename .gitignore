@@ -134,3 +134,11 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+Sriram_Advisory_Message_Studio_Product_Specification_v3_0.docx
+
+# Local checks and browser artifacts
+playwright-report/
+test-results/
+test-results-*/
+specification.txt

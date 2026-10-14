@@ -1,2 +1,28 @@
-# MessageStudio
-One Workspace to Manage entire messaging
+# Sriram Advisory Message Studio
+
+One product message. Multiple channels. Consistent communication.
+
+This local browser application extends the source from `D:\sriram\LinkedinTextEdittor` to implement the v3.0 specification's four-destination pilot. It retains the React, TypeScript, Tiptap, IndexedDB and offline foundations. The original source directory is retained; this repository has its own history.
+
+```powershell
+npm ci
+npm run dev
+```
+
+Open `http://127.0.0.1:3001`. Production output is generated in `dist/`:
+
+```powershell
+npm test
+npm run build
+npx playwright test --project=chrome
+```
+
+Quick Format supports immediate editing and copying without a brief. Message Studio adds optional audience, problem, value, evidence, objectives and CTA fields. LinkedIn, WhatsApp, email and Generic plain text have separate deterministic adapters and independently editable versions.
+
+Select text, open **Shared details**, and choose **Keep selected text consistent** to create an explicit reference. Link matching text in another version or insert that reference. Reviewed canonical updates touch only references; unrelated identical text stays intact. Required missing references block normal copy until restored or explicitly excepted. Exceptions need renewed review after canonical updates.
+
+Other features include brand snapshots, separate email subjects, sanitized rich email clipboard with fallback, copy receipts, global Unicode disable, local Trash, 20 recovery revisions, additive imports and guarded workspace replacement. Copy receipts describe local copying, never publication or reach.
+
+All content stays in the browser. Clearing browser data removes drafts. Export backups regularly. The app has no account, AI API, publishing, scheduling or analytics integration.
+
+See [implementation and verification notes](docs/MESSAGE_STUDIO_V3.md) for the schema audit, release checks and phased scope. Platform-client compatibility and pilot outcomes are unverified. Instagram, Facebook, X and full campaign-bundle organization belong to the specification's later phase.
