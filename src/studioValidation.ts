@@ -1,5 +1,7 @@
 import type { Doc } from './model';
 import { destinations, objectives, boundIds, safeUrl, type Studio } from './studio';
+import { validateFactValue } from './facts/values';
+import { renderFactValue, validateFactTemplate } from './facts/templates';
 const record = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const str = (v: unknown, max = 5000) => typeof v === 'string' && v.length <= max;
 const integer = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
@@ -14,7 +16,15 @@ export function validateStudio(value: unknown, original: Doc, validateDoc: (v: u
   if (value.campaign !== undefined && !str(value.campaign,160) || value.trashedAt !== undefined && !date(value.trashedAt)) throw Error('Invalid campaign or Trash metadata.');
   const ids = new Set<string>();
   for (const d of value.sharedDetails) {
-    if (!record(d) || !exact(d,['id','label','kind','canonicalValue','targetUrl','revision','requiredDestinations']) || !str(d.id,100) || !d.id || ids.has(d.id) || !str(d.label,160) || !d.label || !['date','price','name','link','phrase'].includes(d.kind) || !str(d.canonicalValue) || !d.canonicalValue || /[\r\n]/.test(d.canonicalValue) || !integer(d.revision) || !Array.isArray(d.requiredDestinations) || d.requiredDestinations.length > 4 || new Set(d.requiredDestinations).size !== d.requiredDestinations.length || d.requiredDestinations.some((id: any) => !destinations.includes(id)) || d.targetUrl !== undefined && (!str(d.targetUrl) || !safeUrl(d.targetUrl)) || d.kind === 'link' && !safeUrl(d.targetUrl || d.canonicalValue)) throw Error('Invalid shared detail.');
+    if (!record(d) || !exact(d,['id','label','kind','canonicalValue','targetUrl','revision','requiredDestinations','typed']) || !str(d.id,100) || !d.id || ids.has(d.id) || !str(d.label,160) || !d.label || !['date','price','name','link','phrase'].includes(d.kind) || !str(d.canonicalValue) || !d.canonicalValue || /[\r\n]/.test(d.canonicalValue) || !integer(d.revision) || !Array.isArray(d.requiredDestinations) || d.requiredDestinations.length > 4 || new Set(d.requiredDestinations).size !== d.requiredDestinations.length || d.requiredDestinations.some((id: any) => !destinations.includes(id)) || d.targetUrl !== undefined && (!str(d.targetUrl) || !safeUrl(d.targetUrl)) || d.kind === 'link' && !safeUrl(d.targetUrl || d.canonicalValue)) throw Error('Invalid shared detail.');
+    if (d.typed !== undefined) {
+      const t = d.typed;
+      if (!record(t) || !exact(t,['value','previousValues','templates']) || !Array.isArray(t.previousValues) || t.previousValues.length > 100 || !record(t.templates) || !t.templates.generic) throw Error('Invalid typed detail.');
+      validateFactValue(t.value);
+      for (const previous of t.previousValues) { validateFactValue(previous); if (previous.type !== t.value.type) throw Error('Previous fact type differs.'); }
+      for (const [id, template] of Object.entries(t.templates)) { validateFactTemplate(template); if (!destinations.includes(id as any) || template.destinationId !== id) throw Error('Invalid detail template destination.'); }
+      if (renderFactValue(t.value, t.templates.generic) !== d.canonicalValue || t.value.type === 'url' && t.value.url !== d.targetUrl) throw Error('Typed detail cache differs from canonical value.');
+    }
     ids.add(d.id);
   }
   const checkDoc = (doc: Doc) => { validateDoc(doc); for (const id of boundIds(doc)) if (!ids.has(id)) throw Error('Dangling detail reference.'); for (const p of doc.content) for (const n of p.content || []) if (n.type === 'sharedDetail' && value.sharedDetails.find((d: any) => d.id === n.attrs.detailId).canonicalValue !== n.attrs.value) throw Error('Detail cache differs from canonical value.'); };

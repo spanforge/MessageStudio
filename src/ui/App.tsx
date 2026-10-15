@@ -186,7 +186,7 @@ function Workspace({ w }: { w: Workbench }) {
   }
   async function copySubject() {
     if (review(w.draft,'email').some(r => r.severity === 'error')) { setModal('checks'); return; }
-    const text = adapt(version(studio,'email').subject,studio,'generic').output;
+    const text = adapt(version(studio,'email').subject,studio,'email').plain;
     if (!text.trim()) { notify('Enter an email subject first.'); return; }
     try { await copyText(text); notify('Email subject copied. Body copy status is unchanged.'); } catch { setSubjectCopy(true); setManualReceipt(null); setManualCopy(text); }
   }

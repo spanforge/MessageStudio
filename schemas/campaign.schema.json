@@ -1,0 +1,545 @@
+{
+    "$schema":  "https://json-schema.org/draft/2020-12/schema",
+    "$id":  "urn:message-studio:campaign:5",
+    "title":  "Message Studio typed campaign v5",
+    "type":  "object",
+    "additionalProperties":  false,
+    "required":  [
+                     "schemaVersion",
+                     "kind",
+                     "campaign",
+                     "facts",
+                     "templates",
+                     "occurrences",
+                     "drafts"
+                 ],
+    "properties":  {
+                       "schemaVersion":  {
+                                             "const":  5
+                                         },
+                       "kind":  {
+                                    "const":  "campaign"
+                                },
+                       "campaign":  {
+                                        "$ref":  "#/$defs/campaign"
+                                    },
+                       "facts":  {
+                                     "type":  "array",
+                                     "maxItems":  100,
+                                     "items":  {
+                                                   "$ref":  "#/$defs/fact"
+                                               }
+                                 },
+                       "templates":  {
+                                         "type":  "array",
+                                         "maxItems":  400,
+                                         "items":  {
+                                                       "$ref":  "#/$defs/template"
+                                                   }
+                                     },
+                       "occurrences":  {
+                                           "type":  "array",
+                                           "maxItems":  2000,
+                                           "items":  {
+                                                         "$ref":  "#/$defs/occurrence"
+                                                     }
+                                       },
+                       "drafts":  {
+                                      "type":  "array",
+                                      "maxItems":  50,
+                                      "items":  {
+                                                    "$ref":  "draft.schema.json#/$defs/draft"
+                                                }
+                                  }
+                   },
+    "$comment":  "Runtime additionally validates calendar dates, IANA zones, ISO currencies, URLs, canonical caches, relationships and revisions.",
+    "$defs":  {
+                  "factValue":  {
+                                    "oneOf":  [
+                                                  {
+                                                      "type":  "object",
+                                                      "additionalProperties":  false,
+                                                      "required":  [
+                                                                       "type",
+                                                                       "date"
+                                                                   ],
+                                                      "properties":  {
+                                                                         "type":  {
+                                                                                      "const":  "date"
+                                                                                  },
+                                                                         "date":  {
+                                                                                      "type":  "string",
+                                                                                      "pattern":  "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                                                                                  }
+                                                                     }
+                                                  },
+                                                  {
+                                                      "type":  "object",
+                                                      "additionalProperties":  false,
+                                                      "required":  [
+                                                                       "type",
+                                                                       "time",
+                                                                       "timeZone"
+                                                                   ],
+                                                      "properties":  {
+                                                                         "type":  {
+                                                                                      "const":  "time"
+                                                                                  },
+                                                                         "time":  {
+                                                                                      "type":  "string",
+                                                                                      "pattern":  "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+                                                                                  },
+                                                                         "timeZone":  {
+                                                                                          "type":  "string",
+                                                                                          "minLength":  1,
+                                                                                          "maxLength":  2000
+                                                                                      }
+                                                                     }
+                                                  },
+                                                  {
+                                                      "type":  "object",
+                                                      "additionalProperties":  false,
+                                                      "required":  [
+                                                                       "type",
+                                                                       "date",
+                                                                       "time",
+                                                                       "timeZone"
+                                                                   ],
+                                                      "properties":  {
+                                                                         "type":  {
+                                                                                      "const":  "datetime"
+                                                                                  },
+                                                                         "date":  {
+                                                                                      "type":  "string",
+                                                                                      "pattern":  "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                                                                                  },
+                                                                         "time":  {
+                                                                                      "type":  "string",
+                                                                                      "pattern":  "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+                                                                                  },
+                                                                         "timeZone":  {
+                                                                                          "type":  "string",
+                                                                                          "minLength":  1,
+                                                                                          "maxLength":  2000
+                                                                                      }
+                                                                     }
+                                                  },
+                                                  {
+                                                      "type":  "object",
+                                                      "additionalProperties":  false,
+                                                      "required":  [
+                                                                       "type",
+                                                                       "amount",
+                                                                       "currency"
+                                                                   ],
+                                                      "properties":  {
+                                                                         "type":  {
+                                                                                      "const":  "money"
+                                                                                  },
+                                                                         "amount":  {
+                                                                                        "type":  "string",
+                                                                                        "pattern":  "^(?:0|[1-9][0-9]{0,29})(?:\\.[0-9]{1,12})?$"
+                                                                                    },
+                                                                         "currency":  {
+                                                                                          "type":  "string",
+                                                                                          "pattern":  "^[A-Z]{3}$"
+                                                                                      }
+                                                                     }
+                                                  },
+                                                  {
+                                                      "type":  "object",
+                                                      "additionalProperties":  false,
+                                                      "required":  [
+                                                                       "type",
+                                                                       "number",
+                                                                       "originalDisplay"
+                                                                   ],
+                                                      "properties":  {
+                                                                         "type":  {
+                                                                                      "const":  "phone"
+                                                                                  },
+                                                                         "number":  {
+                                                                                        "type":  "string",
+                                                                                        "pattern":  "^\\+[1-9][0-9]{1,14}$"
+                                                                                    },
+                                                                         "originalDisplay":  {
+                                                                                                 "type":  "string",
+                                                                                                 "minLength":  1,
+                                                                                                 "maxLength":  2000
+                                                                                             },
+                                                                         "extension":  {
+                                                                                           "type":  "string",
+                                                                                           "pattern":  "^[0-9]{1,10}$"
+                                                                                       }
+                                                                     }
+                                                  },
+                                                  {
+                                                      "type":  "object",
+                                                      "additionalProperties":  false,
+                                                      "required":  [
+                                                                       "type",
+                                                                       "url"
+                                                                   ],
+                                                      "properties":  {
+                                                                         "type":  {
+                                                                                      "const":  "url"
+                                                                                  },
+                                                                         "url":  {
+                                                                                     "type":  "string",
+                                                                                     "maxLength":  2000,
+                                                                                     "pattern":  "^https?://"
+                                                                                 },
+                                                                         "label":  {
+                                                                                       "type":  "string",
+                                                                                       "minLength":  1,
+                                                                                       "maxLength":  2000
+                                                                                   }
+                                                                     }
+                                                  },
+                                                  {
+                                                      "type":  "object",
+                                                      "additionalProperties":  false,
+                                                      "required":  [
+                                                                       "type",
+                                                                       "text"
+                                                                   ],
+                                                      "properties":  {
+                                                                         "type":  {
+                                                                                      "const":  "literal"
+                                                                                  },
+                                                                         "text":  {
+                                                                                      "type":  "string",
+                                                                                      "minLength":  1,
+                                                                                      "maxLength":  5000
+                                                                                  }
+                                                                     }
+                                                  }
+                                              ]
+                                },
+                  "template":  {
+                                   "type":  "object",
+                                   "additionalProperties":  false,
+                                   "required":  [
+                                                    "id",
+                                                    "locale",
+                                                    "destinationId",
+                                                    "month",
+                                                    "year",
+                                                    "weekday",
+                                                    "timeStyle",
+                                                    "zoneDisplay",
+                                                    "currencyDisplay",
+                                                    "phoneDisplay",
+                                                    "urlDisplay"
+                                                ],
+                                   "properties":  {
+                                                      "id":  {
+                                                                 "type":  "string",
+                                                                 "minLength":  1,
+                                                                 "maxLength":  100
+                                                             },
+                                                      "locale":  {
+                                                                     "enum":  [
+                                                                                  "en-IN",
+                                                                                  "ta-IN",
+                                                                                  "hi-IN"
+                                                                              ]
+                                                                 },
+                                                      "destinationId":  {
+                                                                            "enum":  [
+                                                                                         "linkedin",
+                                                                                         "whatsapp",
+                                                                                         "email",
+                                                                                         "generic"
+                                                                                     ]
+                                                                        },
+                                                      "month":  {
+                                                                    "enum":  [
+                                                                                 "short",
+                                                                                 "long",
+                                                                                 "numeric"
+                                                                             ]
+                                                                },
+                                                      "year":  {
+                                                                   "type":  "boolean"
+                                                               },
+                                                      "weekday":  {
+                                                                      "type":  "boolean"
+                                                                  },
+                                                      "timeStyle":  {
+                                                                        "enum":  [
+                                                                                     "12h",
+                                                                                     "24h"
+                                                                                 ]
+                                                                    },
+                                                      "zoneDisplay":  {
+                                                                          "enum":  [
+                                                                                       "hidden",
+                                                                                       "iana"
+                                                                                   ]
+                                                                      },
+                                                      "currencyDisplay":  {
+                                                                              "enum":  [
+                                                                                           "code",
+                                                                                           "symbol"
+                                                                                       ]
+                                                                          },
+                                                      "phoneDisplay":  {
+                                                                           "enum":  [
+                                                                                        "international",
+                                                                                        "original"
+                                                                                    ]
+                                                                       },
+                                                      "urlDisplay":  {
+                                                                         "enum":  [
+                                                                                      "target",
+                                                                                      "label"
+                                                                                  ]
+                                                                     }
+                                                  }
+                               },
+                  "fact":  {
+                               "type":  "object",
+                               "additionalProperties":  false,
+                               "required":  [
+                                                "id",
+                                                "label",
+                                                "value",
+                                                "revision",
+                                                "requiredDestinations",
+                                                "previousValues",
+                                                "metadata"
+                                            ],
+                               "properties":  {
+                                                  "id":  {
+                                                             "type":  "string",
+                                                             "minLength":  1,
+                                                             "maxLength":  100
+                                                         },
+                                                  "label":  {
+                                                                "type":  "string",
+                                                                "minLength":  1,
+                                                                "maxLength":  160
+                                                            },
+                                                  "value":  {
+                                                                "$ref":  "#/$defs/factValue"
+                                                            },
+                                                  "revision":  {
+                                                                   "type":  "integer",
+                                                                   "minimum":  0
+                                                               },
+                                                  "requiredDestinations":  {
+                                                                               "type":  "array",
+                                                                               "maxItems":  4,
+                                                                               "items":  {
+                                                                                             "enum":  [
+                                                                                                          "linkedin",
+                                                                                                          "whatsapp",
+                                                                                                          "email",
+                                                                                                          "generic"
+                                                                                                      ]
+                                                                                         },
+                                                                               "uniqueItems":  true
+                                                                           },
+                                                  "previousValues":  {
+                                                                         "type":  "array",
+                                                                         "maxItems":  100,
+                                                                         "items":  {
+                                                                                       "$ref":  "#/$defs/factValue"
+                                                                                   }
+                                                                     },
+                                                  "metadata":  {
+                                                                   "type":  "object",
+                                                                   "additionalProperties":  false,
+                                                                   "required":  [
+
+                                                                                ],
+                                                                   "properties":  {
+                                                                                      "legacyDetailId":  {
+                                                                                                             "type":  "string",
+                                                                                                             "minLength":  1,
+                                                                                                             "maxLength":  100
+                                                                                                         }
+                                                                                  }
+                                                               }
+                                              }
+                           },
+                  "campaign":  {
+                                   "type":  "object",
+                                   "additionalProperties":  false,
+                                   "required":  [
+                                                    "id",
+                                                    "title",
+                                                    "createdAt",
+                                                    "updatedAt",
+                                                    "revision",
+                                                    "factIds",
+                                                    "draftIds"
+                                                ],
+                                   "properties":  {
+                                                      "id":  {
+                                                                 "type":  "string",
+                                                                 "minLength":  1,
+                                                                 "maxLength":  100
+                                                             },
+                                                      "title":  {
+                                                                    "type":  "string",
+                                                                    "minLength":  1,
+                                                                    "maxLength":  200
+                                                                },
+                                                      "recurrenceLabel":  {
+                                                                              "type":  "string",
+                                                                              "minLength":  1,
+                                                                              "maxLength":  200
+                                                                          },
+                                                      "createdAt":  {
+                                                                        "type":  "string",
+                                                                        "format":  "date-time"
+                                                                    },
+                                                      "updatedAt":  {
+                                                                        "type":  "string",
+                                                                        "format":  "date-time"
+                                                                    },
+                                                      "revision":  {
+                                                                       "type":  "integer",
+                                                                       "minimum":  0
+                                                                   },
+                                                      "factIds":  {
+                                                                      "type":  "array",
+                                                                      "maxItems":  100,
+                                                                      "items":  {
+                                                                                    "type":  "string",
+                                                                                    "minLength":  1,
+                                                                                    "maxLength":  100
+                                                                                },
+                                                                      "uniqueItems":  true
+                                                                  },
+                                                      "draftIds":  {
+                                                                       "type":  "array",
+                                                                       "maxItems":  50,
+                                                                       "items":  {
+                                                                                     "type":  "string",
+                                                                                     "minLength":  1,
+                                                                                     "maxLength":  100
+                                                                                 },
+                                                                       "uniqueItems":  true
+                                                                   },
+                                                      "parentCampaignId":  {
+                                                                               "type":  "string",
+                                                                               "minLength":  1,
+                                                                               "maxLength":  100
+                                                                           }
+                                                  }
+                               },
+                  "occurrence":  {
+                                     "type":  "object",
+                                     "additionalProperties":  false,
+                                     "required":  [
+                                                      "id",
+                                                      "factId",
+                                                      "draftId",
+                                                      "documentNodeId",
+                                                      "destinationId",
+                                                      "templateId"
+                                                  ],
+                                     "properties":  {
+                                                        "id":  {
+                                                                   "type":  "string",
+                                                                   "minLength":  1,
+                                                                   "maxLength":  100
+                                                               },
+                                                        "factId":  {
+                                                                       "type":  "string",
+                                                                       "minLength":  1,
+                                                                       "maxLength":  100
+                                                                   },
+                                                        "draftId":  {
+                                                                        "type":  "string",
+                                                                        "minLength":  1,
+                                                                        "maxLength":  100
+                                                                    },
+                                                        "documentNodeId":  {
+                                                                               "type":  "string",
+                                                                               "minLength":  1,
+                                                                               "maxLength":  100
+                                                                           },
+                                                        "destinationId":  {
+                                                                              "enum":  [
+                                                                                           "linkedin",
+                                                                                           "whatsapp",
+                                                                                           "email",
+                                                                                           "generic"
+                                                                                       ]
+                                                                          },
+                                                        "templateId":  {
+                                                                           "type":  "string",
+                                                                           "minLength":  1,
+                                                                           "maxLength":  100
+                                                                       },
+                                                        "exception":  {
+                                                                          "type":  "object",
+                                                                          "additionalProperties":  false,
+                                                                          "required":  [
+                                                                                           "revision",
+                                                                                           "reason"
+                                                                                       ],
+                                                                          "properties":  {
+                                                                                             "revision":  {
+                                                                                                              "type":  "integer",
+                                                                                                              "minimum":  0
+                                                                                                          },
+                                                                                             "reason":  {
+                                                                                                            "type":  "string",
+                                                                                                            "minLength":  1,
+                                                                                                            "maxLength":  500
+                                                                                                        }
+                                                                                         }
+                                                                      }
+                                                    }
+                                 },
+                  "metadata":  {
+                                   "type":  "object",
+                                   "additionalProperties":  false,
+                                   "required":  [
+                                                    "schemaVersion",
+                                                    "kind",
+                                                    "campaign",
+                                                    "facts",
+                                                    "templates",
+                                                    "occurrences"
+                                                ],
+                                   "properties":  {
+                                                      "schemaVersion":  {
+                                                                            "const":  5
+                                                                        },
+                                                      "kind":  {
+                                                                   "const":  "campaign"
+                                                               },
+                                                      "campaign":  {
+                                                                       "$ref":  "#/$defs/campaign"
+                                                                   },
+                                                      "facts":  {
+                                                                    "type":  "array",
+                                                                    "maxItems":  100,
+                                                                    "items":  {
+                                                                                  "$ref":  "#/$defs/fact"
+                                                                              }
+                                                                },
+                                                      "templates":  {
+                                                                        "type":  "array",
+                                                                        "maxItems":  400,
+                                                                        "items":  {
+                                                                                      "$ref":  "#/$defs/template"
+                                                                                  }
+                                                                    },
+                                                      "occurrences":  {
+                                                                          "type":  "array",
+                                                                          "maxItems":  2000,
+                                                                          "items":  {
+                                                                                        "$ref":  "#/$defs/occurrence"
+                                                                                    }
+                                                                      }
+                                                  }
+                               }
+              }
+}

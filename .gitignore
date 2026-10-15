@@ -136,6 +136,7 @@ dist
 .pnp.*
 
 Sriram_Advisory_Message_Studio_Product_Specification_v3_0.docx
+Message_Studio_Master_Product_Specification_v5_0.docx
 
 # Local checks and browser artifacts
 playwright-report/

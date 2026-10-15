@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:sriram-advisory:linkedin-formatter:backup:1",
-  "title": "Message Studio workspace backup (legacy envelope, v3 bundles)",
+  "title": "Message Studio workspace backup including optional campaigns",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -79,6 +79,13 @@
     },
     "brandProfile": {
       "$ref": "draft.schema.json#/$defs/brand"
+    },
+    "campaigns": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "campaign.schema.json#/$defs/metadata"
+      }
     }
   }
 }

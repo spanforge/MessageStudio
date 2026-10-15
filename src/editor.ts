@@ -10,7 +10,7 @@ import { fromText, normalize, sourceText, validateDoc, type Doc } from './model'
 
 const Family = TiptapMark.create({ name: 'family', addAttributes: () => ({ family: { default: 'sans' } }), parseHTML: () => [], renderHTML: ({ HTMLAttributes }) => ['span', { 'data-family': HTMLAttributes.family }, 0] });
 const SharedDetail = Node.create({ name: 'sharedDetail', group: 'inline', inline: true, atom: true, selectable: true, marks: '',
-  addAttributes: () => ({ detailId: { default: '' }, value: { default: '' } }), parseHTML: () => [],
+  addAttributes: () => ({ detailId: { default: '' }, value: { default: '' }, nodeId: { default: null } }), parseHTML: () => [],
   renderHTML: ({ node }) => ['span', { 'data-detail-id': node.attrs.detailId, class: 'bound-detail', title: 'Linked shared detail' }, node.attrs.value],
   renderText: ({ node }) => node.attrs.value,
 });

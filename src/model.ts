@@ -3,14 +3,16 @@ import type { Studio } from './studio';
 import { validateStudio, validateBrand } from './studioValidation';
 import { graphemeSegments } from 'unicode-segmenter/grapheme';
 import type { Brand } from './studio';
+import { validateCampaignBundle } from './campaigns/model';
+import type { CampaignMetadata } from './campaigns/transfer';
 export type Mark = { type: 'bold' | 'italic' | 'underline' | 'strike' | 'family'; attrs?: { family: 'sans' | 'serif' } };
-export type Inline = { type: 'text'; text: string; marks?: Mark[] } | { type: 'sharedDetail'; attrs: { detailId: string; value: string }; marks?: Mark[] } | { type: 'hardBreak' };
+export type Inline = { type: 'text'; text: string; marks?: Mark[] } | { type: 'sharedDetail'; attrs: { detailId: string; value: string; nodeId?: string | null }; marks?: Mark[] } | { type: 'hardBreak' };
 export type Paragraph = { type: 'paragraph'; attrs?: { listType?: 'hyphen' | 'bullet' | 'number' | null }; content?: Inline[] };
 export type Doc = { type: 'doc'; content: Paragraph[] };
 export type Preferences = { theme: 'light' | 'dark'; guidance: boolean; dismissedIntro: boolean; unicodeDisabled?: boolean };
 export type Draft = { schemaVersion: 1; id: string; title: string; createdAt: string; updatedAt: string; revision: number; editorDocument: Doc; preferences: Partial<Preferences>; studio?: Studio };
 export type Snippet = { id: string; title: string; text: string };
-export type Backup = { schemaVersion: 1; kind: 'backup'; drafts: Draft[]; snippets: Snippet[]; preferences: Preferences; recent: string[]; brandProfile?: Brand };
+export type Backup = { schemaVersion: 1; kind: 'backup'; drafts: Draft[]; snippets: Snippet[]; preferences: Preferences; recent: string[]; brandProfile?: Brand; campaigns?: CampaignMetadata[] };
 export const normalize = (text: string) => text.replace(/\r\n?/g, '\n');
 export function fromText(text: string): Doc { return { type: 'doc', content: normalize(text).split('\n').map(line => ({ type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [] })) }; }
 export function sourceText(doc: Doc): string { return doc.content.map(p => (p.content || []).map(n => n.type === 'text' ? n.text : n.type === 'sharedDetail' ? n.attrs.value : '\n').join('')).join('\n'); }
@@ -20,13 +22,15 @@ const exact = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).eve
 export function validateDoc(value: unknown): asserts value is Doc {
   if (!object(value) || !exact(value, ['type', 'content']) || value.type !== 'doc' || !Array.isArray(value.content) || !value.content.length || value.content.length > config.sourceLimit + 1) throw Error('Invalid document structure.');
   let units = value.content.length - 1; let nodes = value.content.length;
+  const nodeIds = new Set<string>();
   for (const p of value.content) {
     if (!object(p) || !exact(p, ['type', 'attrs', 'content']) || p.type !== 'paragraph' || (p.content !== undefined && !Array.isArray(p.content))) throw Error('Invalid paragraph.');
     if (p.attrs !== undefined && (!object(p.attrs) || !exact(p.attrs, ['listType']) || ![undefined, null, 'hyphen', 'bullet', 'number'].includes(p.attrs.listType as string))) throw Error('Invalid list metadata.');
     for (const n of (p.content || []) as unknown[]) {
       if (++nodes > 20000 || !object(n)) throw Error('Invalid node or node limit exceeded.');
       if (n.type === 'sharedDetail') {
-        if (!exact(n, ['type', 'attrs', 'marks']) || !object(n.attrs) || !exact(n.attrs, ['detailId', 'value']) || typeof n.attrs.detailId !== 'string' || !n.attrs.detailId || typeof n.attrs.value !== 'string' || !n.attrs.value || /[\r\n]/.test(n.attrs.value) || n.attrs.value.length > 5000 || n.marks !== undefined) throw Error('Invalid shared detail reference.');
+        if (!exact(n, ['type', 'attrs', 'marks']) || !object(n.attrs) || !exact(n.attrs, ['detailId', 'value', 'nodeId']) || n.attrs.nodeId != null && (typeof n.attrs.nodeId !== 'string' || !n.attrs.nodeId || n.attrs.nodeId.length > 100) || typeof n.attrs.detailId !== 'string' || !n.attrs.detailId || typeof n.attrs.value !== 'string' || !n.attrs.value || /[\r\n]/.test(n.attrs.value) || n.attrs.value.length > 5000 || n.marks !== undefined) throw Error('Invalid shared detail reference.');
+        if (n.attrs.nodeId) { if (nodeIds.has(n.attrs.nodeId as string)) throw Error('Duplicate reference node ID.'); nodeIds.add(n.attrs.nodeId as string); }
         units += n.attrs.value.length; continue;
       }
       if (n.type === 'hardBreak' && exact(n, ['type'])) { units++; continue; }
@@ -62,10 +66,21 @@ export function parseImport(text: string): Draft | Backup {
   if (new TextEncoder().encode(text).length > config.importBytes) throw Error('Import must be 10 MiB or smaller.');
   const v: unknown = JSON.parse(text);
   if (object(v) && v.kind === 'backup') {
-    if (!exact(v, ['schemaVersion', 'kind', 'drafts', 'snippets', 'preferences', 'recent', 'brandProfile']) || v.schemaVersion !== 1 || !Array.isArray(v.drafts) || v.drafts.length > config.draftLimit) throw Error('Invalid backup.');
+    if (!exact(v, ['schemaVersion', 'kind', 'drafts', 'snippets', 'preferences', 'recent', 'brandProfile','campaigns']) || v.schemaVersion !== 1 || !Array.isArray(v.drafts) || v.drafts.length > config.draftLimit) throw Error('Invalid backup.');
     const ids = new Set<string>(); for (const d of v.drafts) { validateDraft(d); if (ids.has(d.id)) throw Error('Duplicate draft IDs.'); ids.add(d.id); }
     validateSnippets(v.snippets); validatePreferences(v.preferences); if (v.brandProfile !== undefined) validateBrand(v.brandProfile);
     if (!Array.isArray(v.recent) || v.recent.length > 30 || v.recent.some(x => typeof x !== 'string' || x.length > 100)) throw Error('Invalid emoji history.');
+    if (v.campaigns !== undefined) {
+      if (!Array.isArray(v.campaigns) || v.campaigns.length > 50) throw Error('Invalid campaign collection.');
+      const campaignIds = new Set<string>(), memberships = new Set<string>();
+      for (const c of v.campaigns) {
+        if (!object(c) || 'drafts' in c || !object(c.campaign) || !Array.isArray(c.campaign.draftIds)) throw Error('Invalid campaign metadata.');
+        const campaignDrafts = c.campaign.draftIds.map(id => (v.drafts as Draft[]).find(d => d.id === id));
+        validateCampaignBundle({ ...c, drafts: campaignDrafts });
+        if (campaignIds.has(c.campaign.id as string) || c.campaign.draftIds.some(id => memberships.has(id as string))) throw Error('Duplicate campaign membership.');
+        campaignIds.add(c.campaign.id as string); for (const id of c.campaign.draftIds) memberships.add(id as string);
+      }
+    }
     return v as unknown as Backup;
   }
   validateDraft(v); return v;

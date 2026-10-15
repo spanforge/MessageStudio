@@ -1,5 +1,7 @@
 import type { Doc, Draft, Inline } from './model';
 import { protectedRanges, segments, serialize } from './unicode';
+import { validateFactValue, type FactValue } from './facts/values';
+import { defaultFactTemplate, renderFactValue, type FactTemplate } from './facts/templates';
 
 export const destinations = ['linkedin', 'whatsapp', 'email', 'generic'] as const;
 export type Destination = typeof destinations[number];
@@ -7,7 +9,7 @@ export const destinationNames: Record<Destination, string> = { linkedin: 'Linked
 export const objectives = { general: 'General', awareness: 'Awareness', trial: 'Trial', activation: 'Activation / Onboarding', reengagement: 'Re-engagement' };
 export type Objective = keyof typeof objectives;
 export type Brief = { audienceText?: string; customerProblemText?: string; productName?: string; valueStatement?: string; differentiationEvidence?: string; desiredActionText?: string; desiredActionUrl?: string; requiredDetailIds: string[]; revision: number; updatedAt: string };
-export type Detail = { id: string; label: string; kind: 'date' | 'price' | 'name' | 'link' | 'phrase'; canonicalValue: string; targetUrl?: string; revision: number; requiredDestinations: Destination[] };
+export type Detail = { id: string; label: string; kind: 'date' | 'price' | 'name' | 'link' | 'phrase'; canonicalValue: string; targetUrl?: string; revision: number; requiredDestinations: Destination[]; typed?: { value: FactValue; previousValues: FactValue[]; templates: Partial<Record<Destination, FactTemplate>> } };
 export type Brand = { name: string; spelling: string; alternatives: string[]; website: string; cta: string; phrases: string[]; unicode: boolean; revision: number };
 export type Receipt = { hash: string; mode: 'plain' | 'text' | 'rich'; copiedAt: string; profileVersion: number; originalRevision: number; versionRevision: number };
 export type Version = { overrideDocument?: Doc; basedOnOriginalRevision: number; revision: number; subject: Doc; receipt?: Receipt };
@@ -19,17 +21,22 @@ export function emptyDoc(): Doc { return { type: 'doc', content: [{ type: 'parag
 export function version(s: Studio, id = s.activeDestination): Version { return s.versions[id] || { basedOnOriginalRevision: s.originalRevision, revision: 0, subject: emptyDoc() }; }
 export function activeDoc(d: Draft, id = state(d).activeDestination): Doc { return version(state(d), id).overrideDocument || d.editorDocument; }
 export function inlineText(n: Inline): string { return n.type === 'hardBreak' ? '\n' : n.type === 'sharedDetail' ? n.attrs.value : n.text; }
-export function materialize(doc: Doc, details: Detail[] = []): Doc { return { ...doc, content: doc.content.map(p => ({ ...p, content: p.content?.map(n => n.type === 'sharedDetail' ? { type: 'text', text: details.find(d => d.id === n.attrs.detailId)?.canonicalValue || n.attrs.value, marks: n.marks } : n) })) }; }
+export function detailDisplay(detail: Detail, destination: Destination): string {
+  const template = detail.typed?.templates[destination];
+  return detail.typed && template ? renderFactValue(detail.typed.value, template) : detail.canonicalValue;
+}
+export function materialize(doc: Doc, details: Detail[] = [], destination: Destination = 'generic'): Doc { return { ...doc, content: doc.content.map(p => ({ ...p, content: p.content?.map(n => n.type === 'sharedDetail' ? { type: 'text', text: details.find(d => d.id === n.attrs.detailId) ? detailDisplay(details.find(d => d.id === n.attrs.detailId)!, destination) : n.attrs.value, marks: n.marks } : n) })) }; }
 export function safeUrl(url: string): boolean { try { const u = new URL(url); return ['https:', 'http:'].includes(u.protocol) && !u.username && !u.password; } catch { return false; } }
 const escapeHTML = (v: string) => v.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
-export function emailHTML(doc: Doc, details: Detail[]): string {
+export function emailHTML(doc: Doc, details: Detail[], destination: Destination = 'email'): string {
   let number = 0;
   return doc.content.map(p => {
     const list = p.attrs?.listType; if (list !== 'number') number = 0;
     const prefix = list === 'number' ? `${++number}. ` : list ? '• ' : '';
     const body = (p.content || []).map(n => {
       if (n.type === 'hardBreak') return '<br>';
-      let text = escapeHTML(inlineText(n));
+      const detail = n.type === 'sharedDetail' ? details.find(d => d.id === n.attrs.detailId) : undefined;
+      let text = escapeHTML(detail ? detailDisplay(detail, destination) : inlineText(n));
       if (n.type === 'sharedDetail') { const d = details.find(d => d.id === n.attrs.detailId); if (d?.targetUrl && safeUrl(d.targetUrl)) text = `<a href="${escapeHTML(d.targetUrl)}">${text}</a>`; }
       for (const m of n.marks || []) { const tag = { bold: 'strong', italic: 'em', strike: 's', underline: 'u', family: '' }[m.type]; if (tag) text = `<${tag}>${text}</${tag}>`; }
       return text;
@@ -39,7 +46,7 @@ export function emailHTML(doc: Doc, details: Detail[]): string {
 }
 export function adapt(doc: Doc, s: Studio, id = s.activeDestination, unicodeDisabled = false) {
   if (unicodeDisabled) s = { ...s, unicode: false };
-  const source = materialize(doc, s.sharedDetails); const base = serialize(source); const warnings: string[] = [];
+  const source = materialize(doc, s.sharedDetails, id); const base = serialize(source); const warnings: string[] = [];
   let output = base.plain; let delta = 0;
   let rangeMap = base.rangeMap.map(r => { const inserted = r.sourceFrom === r.sourceTo; const result = { ...r, outputFrom: r.outputFrom + delta, outputTo: r.outputFrom + delta + (inserted ? r.outputTo-r.outputFrom : r.sourceTo-r.sourceFrom) }; if (!inserted) delta += r.sourceTo-r.sourceFrom - (r.outputTo-r.outputFrom); return result; });
   if (id === 'linkedin' && s.unicode) { output = base.output; rangeMap = base.rangeMap; }
@@ -79,16 +86,37 @@ export function adapt(doc: Doc, s: Studio, id = s.activeDestination, unicodeDisa
     }).join('\n');
     if (/[*_~`]/.test(base.plain)) warnings.push('Literal marker patterns may be interpreted by WhatsApp after paste.');
   }
-  return { ...base, rangeMap, output, graphemes: segments(output).length, units: output.length, pieces: id === 'linkedin' && s.unicode ? base.pieces : [{ text: output, kind: 'ordinary' as const }], html: emailHTML(doc, s.sharedDetails), warnings: [...new Set(warnings)], limitLabel: id === 'linkedin' ? '3,000 provisional target · Composer count not verified' : 'Limit not verified' };
+  // Display templates can change a bound node's length. Map generated spans back to
+  // the complete original atom, keeping subsequent ordinary text offsets exact.
+  const spans: { from: number; to: number; originalFrom: number; originalTo: number; atom: boolean }[] = [];
+  let generated = 0, original = 0;
+  doc.content.forEach((p, pi) => {
+    if (pi) { spans.push({ from: generated, to: generated + 1, originalFrom: original, originalTo: original + 1, atom: false }); generated++; original++; }
+    (p.content || []).forEach((n, ni) => { const before = inlineText(n), after = inlineText(source.content[pi].content![ni]); spans.push({ from: generated, to: generated + after.length, originalFrom: original, originalTo: original + before.length, atom: n.type === 'sharedDetail' }); generated += after.length; original += before.length; });
+  });
+  let spanIndex = 0;
+  rangeMap = rangeMap.map(r => {
+    while (spanIndex + 1 < spans.length && spans[spanIndex].to <= r.sourceFrom) spanIndex++;
+    const first = spans[spanIndex]; if (!first) return r;
+    if (r.sourceFrom === r.sourceTo) {
+      const boundary = first.atom ? (r.sourceFrom === first.to ? first.originalTo : first.originalFrom) : first.originalFrom + r.sourceFrom - first.from;
+      return { ...r, sourceFrom: boundary, sourceTo: boundary };
+    }
+    let lastIndex = spanIndex;
+    while (lastIndex + 1 < spans.length && spans[lastIndex].to < r.sourceTo) lastIndex++;
+    const last = spans[lastIndex];
+    return { ...r, sourceFrom: first.atom ? first.originalFrom : first.originalFrom + r.sourceFrom - first.from, sourceTo: last.atom ? last.originalTo : last.originalFrom + r.sourceTo - last.from };
+  });
+  return { ...base, rangeMap, output, graphemes: segments(output).length, units: output.length, pieces: id === 'linkedin' && s.unicode ? base.pieces : [{ text: output, kind: 'ordinary' as const }], html: emailHTML(doc, s.sharedDetails, id), warnings: [...new Set(warnings)], limitLabel: id === 'linkedin' ? '3,000 provisional target · Composer count not verified' : 'Limit not verified' };
 }
 // Deterministic content fingerprint. Receipts never store clipboard text.
 export function fingerprint(text: string): string { let a = 2166136261, b = 5381; for (let i = 0; i < text.length; i++) { a = Math.imul(a ^ text.charCodeAt(i), 16777619); b = Math.imul(b, 33) ^ text.charCodeAt(i); } return `${text.length}:${(a >>> 0).toString(16)}:${(b >>> 0).toString(16)}`; }
-export function receiptHash(d: Draft, id: Destination, mode: Receipt['mode'], unicodeDisabled = false): string { const s = state(d), out = adapt(activeDoc(d, id), s, id, unicodeDisabled); const subject = id === 'email' ? adapt(version(s, id).subject, s, 'generic').output : ''; return fingerprint(JSON.stringify([mode, subject, mode === 'plain' ? out.plain : out.output, mode === 'rich' ? out.html : '', 1])); }
+export function receiptHash(d: Draft, id: Destination, mode: Receipt['mode'], unicodeDisabled = false): string { const s = state(d), out = adapt(activeDoc(d, id), s, id, unicodeDisabled); const subject = id === 'email' ? adapt(version(s, id).subject, s, 'email').plain : ''; return fingerprint(JSON.stringify([mode, subject, mode === 'plain' ? out.plain : out.output, mode === 'rich' ? out.html : '', 1])); }
 export function copyStatus(d: Draft, id: Destination, unicodeDisabled = false): string { const r = version(state(d), id).receipt; return !r ? 'Not copied' : r.hash === receiptHash(d, id, r.mode, unicodeDisabled) ? `Copied${r.mode === 'plain' ? ' (plain text)' : ''}` : 'Changed since copy'; }
 export function boundIds(doc: Doc): string[] { return doc.content.flatMap(p => (p.content || []).flatMap(n => n.type === 'sharedDetail' ? [n.attrs.detailId] : [])); }
 export function review(d: Draft, id = state(d).activeDestination): Review[] {
   const s = state(d), doc = activeDoc(d, id), v = version(s, id), result: Review[] = [];
-  const body = adapt(doc, s, id), subject = adapt(v.subject, s, 'generic').output;
+  const body = adapt(doc, s, id), subject = adapt(v.subject, s, 'email').plain;
   const ids = [...boundIds(doc), ...(id === 'email' ? boundIds(v.subject) : [])];
   const add = (ruleId: string, group: Review['group'], message: string, deterministic = true, severity: Review['severity'] = 'notice', detailId?: string, location = 'body', sourceRange: Review['sourceRange'] = null) => {
     const mapped = sourceRange ? body.rangeMap.filter(r => r.sourceFrom < sourceRange.to && r.sourceTo > sourceRange.from) : [];
@@ -118,6 +146,7 @@ export function review(d: Draft, id = state(d).activeDestination): Review[] {
 export function updateDetail(d: Draft, detailId: string, value: string, targetUrl?: string): Draft {
   if (!value || value.length > 5000 || /[\r\n]/.test(value)) throw Error('Use a single-line detail of 1–5,000 characters.');
   const s = structuredClone(state(d)), detail = s.sharedDetails.find(x => x.id === detailId); if (!detail) throw Error('Detail no longer exists.');
+  if (detail.typed) throw Error('Use the typed fact editor to change this detail.');
   if (detail.kind === 'link' && !safeUrl(targetUrl || value)) throw Error('Use a valid HTTP or HTTPS link.');
   detail.canonicalValue = value; detail.targetUrl = detail.kind === 'link' ? targetUrl || value : undefined; detail.revision++;
   const replace = (doc: Doc): Doc => ({ ...doc, content: doc.content.map(p => ({ ...p, content: p.content?.map(n => n.type === 'sharedDetail' && n.attrs.detailId === detailId ? { ...n, attrs: { ...n.attrs, value } } : n) })) });
@@ -125,13 +154,36 @@ export function updateDetail(d: Draft, detailId: string, value: string, targetUr
   for (const id of destinations) { const old = s.versions[id]; if (!old) continue; if (old.overrideDocument) { const next = replace(old.overrideDocument); if (JSON.stringify(next) !== JSON.stringify(old.overrideDocument)) old.revision++; old.overrideDocument = next; } old.subject = replace(old.subject); }
   return { ...d, editorDocument: original, studio: s };
 }
+/** Reviewed conversion/update; all linked caches change together and prose stays intact. */
+export function updateTypedDetail(draft: Draft, detailId: string, value: FactValue, templates?: Partial<Record<Destination, FactTemplate>>): Draft {
+  validateFactValue(value);
+  const copy = structuredClone(draft), detail = state(copy).sharedDetails.find(d => d.id === detailId);
+  if (!detail) throw Error('Detail no longer exists.');
+  if (detail.typed && detail.typed.value.type !== value.type) throw Error('Detach and create a new fact to change its type.');
+  const old = detail.typed;
+  const nextTemplates = templates || old?.templates || Object.fromEntries(destinations.map(id => [id, defaultFactTemplate(id)]));
+  if (!nextTemplates.generic) throw Error('A source display template is required.');
+  const display = renderFactValue(value, nextTemplates.generic);
+  const changed = !old || JSON.stringify(old.value) !== JSON.stringify(value);
+  if (old && changed && old.previousValues.length >= 100) throw Error('Fact history limit reached. Export before creating a replacement fact.');
+  delete detail.typed;
+  detail.kind = value.type === 'url' ? 'link' : value.type === 'money' ? 'price' : ['date','time','datetime'].includes(value.type) ? 'date' : 'phrase';
+  const next = updateDetail(copy, detailId, display, value.type === 'url' ? value.url : undefined);
+  const updated = next.studio!.sharedDetails.find(d => d.id === detailId)!;
+  updated.typed = { value: structuredClone(value), previousValues: old ? [...old.previousValues, ...(changed ? [old.value] : [])] : [], templates: structuredClone(nextTemplates) };
+  if (old && !changed && JSON.stringify(old.templates) === JSON.stringify(nextTemplates)) return structuredClone(draft);
+  // Source atoms receive IDs only during this explicit reviewed operation.
+  const identify = (doc: Doc) => { for (const p of doc.content) for (const n of p.content || []) if (n.type === 'sharedDetail' && !n.attrs.nodeId) n.attrs.nodeId = crypto.randomUUID(); };
+  identify(next.editorDocument); for (const v of Object.values(next.studio!.versions)) { if (v.overrideDocument) identify(v.overrideDocument); identify(v.subject); }
+  return next;
+}
 export function remapDraft(input: Draft): Draft {
   const d = structuredClone(input); d.id = crypto.randomUUID(); d.revision = 0; d.createdAt = d.updatedAt = new Date().toISOString();
   if (!d.studio) return d;
   const s = d.studio, ids = new Map(s.sharedDetails.map(x => [x.id, crypto.randomUUID()]));
-  const remap = (doc: Doc) => { for (const p of doc.content) for (const n of p.content || []) if (n.type === 'sharedDetail') n.attrs.detailId = ids.get(n.attrs.detailId)!; };
+  const remap = (doc: Doc) => { for (const p of doc.content) for (const n of p.content || []) if (n.type === 'sharedDetail') { n.attrs.detailId = ids.get(n.attrs.detailId)!; if (n.attrs.nodeId) n.attrs.nodeId = crypto.randomUUID(); } };
   remap(d.editorDocument); for (const v of Object.values(s.versions)) if (v) { delete v.receipt; if (v.overrideDocument) remap(v.overrideDocument); remap(v.subject); }
-  for (const detail of s.sharedDetails) detail.id = ids.get(detail.id)!;
+  for (const detail of s.sharedDetails) { detail.id = ids.get(detail.id)!; for (const template of Object.values(detail.typed?.templates || {})) template.id = crypto.randomUUID(); }
   for (const e of s.exceptions) e.detailId = ids.get(e.detailId)!;
   if (s.brief) s.brief.requiredDetailIds = s.brief.requiredDetailIds.map(id => ids.get(id)!);
   return d;

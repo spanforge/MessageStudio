@@ -1,211 +1,270 @@
-# LinkedIn Text Formatter implementation plan
+﻿# Message Studio v5.0 — Phase-wise Implementation Plan
 
-Based on `LinkedIn_Text_Formatter_Application_Specification.docx`, version 1.1, dated 11 October 2026.
+Source: `Message_Studio_Master_Product_Specification_v5_0.docx`, dated 13 October 2026.
+Plan prepared: 14 October 2026.
+Status: planned work; phase completion requires the evidence listed below.
+Implementation started: typed-fact editing/templates, reviewed channel updates/undo, campaign creation, versioned transfer and atomic workspace backup/lifecycle integration are recorded in [v5 progress](docs/MESSAGE_STUDIO_V5_PROGRESS.md). Deterministic suggestions, recurring duplication and actual device/browser release gates remain pending; Release A is not yet certified.
 
-Status: application features implemented as a local beta. Automated validation and handover evidence are recorded in `docs/release-evidence/` and `docs/HANDOVER.md`. Real-device, screen-reader, LinkedIn composer and moderated usability launch gates remain pending in `docs/LAUNCH_CHECKLIST.md`; the build is not yet approved for public release.
+## 1. Outcome and governing scope
 
-## 1. Product scope and completion rule
+Build a free, independent, local-first fact-consistency workspace for recurring announcements: **Change a fact once. Every channel version follows.** Preserve independent channel wording, make updates reviewable and atomic, check against supplied facts, and support genuine campaign reuse.
 
-Build **LinkedIn Text Formatter by Sriram Advisory** as a client-only application using React, TypeScript, Vite, Tiptap and ProseMirror. Users edit ordinary source characters with visual marks, inspect the exact Unicode export, and copy it for manual posting on LinkedIn. No signup is required.
+The v5.0 strategic update takes precedence over conflicting inherited v4/v3 decisions. Retain the embedded v4 technical requirements and applicable v3 editing, recovery, accessibility, import/export and copy safeguards. Pricing, paid tiers, compulsory accounts, trial expiry and watermarks are excluded from every release.
 
-The complete first release includes all requirements in sections 1–11 of the specification, including its later additions: Markdown cleanup, snippets, find and replace, recovery revisions, tab conflict handling, readiness checks, and installable offline support. The four delivery milestones in section 12 are expanded below to make these requirements explicit. Intermediate builds remain beta until all launch gates pass.
+Release order:
 
-Exclude a backend, cloud accounts, automatic publishing, scheduling, LinkedIn authentication or scraping, AI rewriting, third-party analytics, draft sharing through URLs, and additional decorative alphabets. Export must never append branding, attribution, or links.
-
-## 2. Foundation and technical decisions
-
-- Validate current official APIs and compatible versions during setup, then pin dependencies and commit the lockfile. This plan does not assert that dependency APIs or LinkedIn limits have already been verified.
-- Use Tiptap transactions for selection, marks, composition, history, and document changes. Build a custom serializer; editor HTML is never the exported post.
-- Use an IndexedDB adapter for drafts, preferences, snippets, recent emoji identifiers, and recovery revisions. Keep usable in-memory editing when persistence fails.
-- Use a unit-test runner such as Vitest, browser integration tests, and Playwright. Use real devices and screen readers for behaviour that browser automation cannot establish.
-- Bundle a licensed, version-pinned emoji metadata dataset and Unicode mapping fixtures. Lazy-load the picker data while precaching it for offline use.
-- Build a versioned service worker and web app manifest for optional installation and offline startup after a successful initial load.
-
-Proposed source boundaries:
-
-```text
-src/
-  config/          Product identity, limits, widths, thresholds, dataset versions
-  model/           Canonical document, draft types, validation, migration
-  editor/          Tiptap extensions, selection, composition, transaction adapters
-  operations/      Lists, spacing, cleanup, find/replace, snippets, reset
-  unicode/         Mapping tables, reverse mappings, segmentation, token protection
-  export/          Serializer, counts, clipboard, text/JSON downloads
-  checks/          Readiness checks and substitution inspection
-  storage/         IndexedDB, autosave, revisions, conflict coordination
-  emoji/           Metadata adapter, search, tones, recent selections
-  ui/              Editor, preview, toolbars, dialogs, draft management
-  content/         Original templates, help, privacy, compatibility information
-  offline/         Cache lifecycle and safe update coordination
-tests/
-  fixtures/        Unicode goldens, documents, imports, malformed inputs
-  unit/            Pure transformations and validators
-  integration/     Editing, persistence, history, recovery, migrations
-  e2e/             Browser workflows, clipboard, offline, privacy
-docs/
-  release-evidence/ Browser/device results and launch sign-off
-```
-
-Keep configuration in one typed module: product name, deployment URL, 3,000 exported UTF-16 unit advisory threshold, 90% caution threshold, 360/600 px preview widths, 768 px mobile breakpoint, 1,200 px content width, 20,000 source-unit cap, 50 drafts, 30 snippets, 1,000 units per snippet, 1 MB JSON import cap, 800 ms autosave delay, 150 ms expensive-check debounce, three recovery revisions, minimum 100 history transactions, and guidance thresholds. Treat the LinkedIn threshold as an estimate until validated at launch.
-
-## 3. Canonical document and output contract
-
-Define a versioned draft containing `schemaVersion`, `id`, `title`, `createdAt`, `updatedAt`, monotonic `revision`, `editorDocument`, and `preferences`. Persist a valid last-active draft and caret separately for resume behaviour. Validate a saved caret before restoring it.
-
-The document contains paragraphs, hard breaks, text runs, marks, and paragraph-level list metadata. Bold and italic are independent marks with a consistent family attribute; underline and strike are mutually exclusive. Emojis remain literal source text. Paragraph separators cannot carry inline marks. Define one canonical representation for hard breaks, blank paragraphs, and intentional trailing newlines before implementing imports and exports.
-
-Maintain one list type per paragraph. Emit prefixes only during serialization. Number consecutive nonempty selected list paragraphs from 1 and restart after a blank paragraph. Counts, warnings, and exported strings are derived rather than authoritative stored data.
-
-Serializer pipeline:
-
-1. Read the canonical document and construct source lines, list prefixes, and run offsets.
-2. Detect protected tokens across adjacent marked runs before character conversion.
-3. Segment into grapheme clusters using `Intl.Segmenter` or a tested bundled fallback.
-4. Map eligible ASCII letters and supported digits according to marks and family.
-5. Add at most one permitted overlay to each eligible source grapheme.
-6. Join exact output, preserving intentional whitespace and final newlines.
-7. Derive grapheme counts, UTF-16 counts, readiness checks, and inspection metadata.
-
-Both preview and formatted copy consume this output. Plain copy/export serializes ordinary source text with explicit list prefixes and line breaks, without generated style characters; preserved imported characters remain until the user accepts cleanup.
-
-Mapping fixtures must cover all 52 ASCII letters and 10 digits for these combinations:
-
-| Style | Uppercase start | Lowercase start | Digits |
-| --- | --- | --- | --- |
-| Sans bold | U+1D5D4 | U+1D5EE | U+1D7EC |
-| Sans italic | U+1D608 | U+1D622 | Unchanged |
-| Sans bold italic | U+1D63C | U+1D656 | Sans bold digits |
-| Serif bold | U+1D400 | U+1D41A | U+1D7CE |
-| Serif italic | U+1D434 | U+1D44E | Unchanged; lowercase h is U+210E |
-| Serif bold italic | U+1D468 | U+1D482 | Serif bold digits |
-
-Use `String.fromCodePoint`. Preserve unsupported clusters exactly: no transliteration, whole-document NFKC normalization, or arbitrary combining-mark removal. Protect HTTP/HTTPS URLs, www domains, email addresses, Unicode hashtags, and @name text, including tokens spanning runs. Distinguish terminal punctuation and preserve uncertain URL-like text with a notice.
-
-Strike uses U+0336 and underline U+0332 on eligible ASCII letters, digits, or punctuation only. Skip protected tokens, whitespace, emoji, non-ASCII scripts, and clusters already containing combining marks. Determine overlay eligibility from source characters before mathematical substitution. Never transform a previous export.
-
-## 4. Milestone 1 — Establish foundations and prove editing risks
-
-### Work
-
-- Scaffold the static application, type checking, build scripts, test tools, and configuration module. Confirm dependency licences and bundle implications.
-- Implement canonical schema, document validation, fixture format, and lossless plain serialization.
-- Prototype ordinary-source editing with visual marks, accessible editor naming, saved selection, keyboard shortcuts, and history.
-- Verify mouse, keyboard, and touch selection survives toolbar and dialog interactions.
-- Suppress transformation and persistence of partial IME input; commit after composition ends. Test Tamil alongside English and complex emoji.
-- Enforce the 20,000 UTF-16 source-unit limit for every inserting operation. Normalize CRLF/CR to LF and reject oversized insertions atomically.
-- Flatten rich paste to safe plain text, preserve all other characters, and insert unmarked text. Do not import images or executable HTML.
-- Prototype user-triggered HTTPS clipboard writes and the manual-copy fallback. Check real LinkedIn paste paths using a user-owned composer without publishing.
-- Approve the Unicode fixtures, token-recognition cases, schema, paragraph semantics, and editor extension design before expanding the UI.
-
-### Exit evidence
-
-Tamil composition commits intact; selection survives supported interactions; paste preserves Unicode and line breaks; history restores exact source; clipboard returns exact output. Record initial desktop and mobile device results and any editor-library limitations. A rendering-only prototype does not pass this milestone.
-
-## 5. Milestone 2 — Complete deterministic formatting and inspection
-
-### Work
-
-- Implement core bold, italic, combined styles, selected-format clearing, and document-wide mark clearing.
-- Implement sans/serif family changes and Advanced strike/underline. Require a selection for Advanced effects and show the specified selection prompt. Mark overlay effects experimental.
-- Make mixed selections fully styled and fully styled selections toggle off. Preserve the selected range after actions. Collapsed bold/italic toggles affect subsequent typing; an Enter-created empty paragraph resets to plain.
-- Implement token protection, all mapping combinations, overlay safety, unsupported-character counts, and explicit imported-style cleanup with preview and one undo transaction.
-- Build exact selectable output with `white-space: pre-wrap` and `overflow-wrap: anywhere`; add approximate mobile/desktop widths and an ordinary-text reading view.
-- Add Show changes metadata for substituted, skipped, and protected source characters without altering copied output.
-- Show visible grapheme and exported UTF-16 counts, estimated threshold warnings, and clear Help definitions. Warnings never disable copy or truncate content.
-- Implement hyphen, bullet, and numbered paragraph lists, toggle removal, type replacement, empty-line skipping, blank-line numbering resets, and explicit pasted-marker cleanup.
-- Implement separate undoable spacing commands: exactly one blank line between nonempty paragraphs, at most one blank line when collapsing, and removal of only trailing ASCII spaces/tabs when trimming.
-- Preserve user-supplied invisible/nonbreaking characters and punctuation. Flag invisible characters for inspection.
-- Implement formatted copy, plain copy, and UTF-8 `.txt` download. Await clipboard success; show a selected read-only manual-copy field on failure. Empty copy shows “Write or paste a post first.”
-- Build readiness checks with Pass, Notice, or Needs attention for length, tokens, unsupported styles, imported alphabets, overlays, invisible characters, placeholders, and excessive emphasis. Include optional list/emoji guidance and Review before copying.
-
-### Exit evidence
-
-Golden fixtures pass for every mapping, digit fallback, reverse mapping, segmentation fallback, and overlay combination. Tests prove toggle restoration, node-boundary token protection, unchanged Tamil/accents/emoji, exact newlines, sequential lists, spacing undo, and clipboard parity. Copy remains available with notices and provides post-copy instructions.
-
-## 6. Milestone 3 — Complete daily-use features and durable local data
-
-### Editing tools and presentation
-
-- Deliver the light/dark desktop editor-and-preview layout and mobile Edit/Preview tabs. Provide a compact Bold/Italic/Emoji/More row, labelled bottom sheet, sticky toolbar, keyboard-aware Copy access, 44 px touch targets, focus rings, and 16 px minimum editor text.
-- Add locally searched emoji categories, professional symbols, available skin tones, and device-local recent identifiers. Restore the captured caret and prevent emoji from inheriting overlays.
-- Implement Clean Markdown using a parser with explicitly supported nodes. Preview paired bold/italic/strike and headings outside code; offer optional heading bold. Convert links to label plus visible URL in parentheses. Preserve malformed syntax, multiplication asterisks, code, and ambiguous nested constructs; list skipped content. Cancellation changes nothing; acceptance is one undo action.
-- Add literal Find and Replace, case sensitivity, next match, and Replace all across marked runs within a paragraph. Never match across paragraph boundaries; replacements are unmarked and Replace all is one undo transaction.
-- Add six original template structures with previews and explicit Replace/Append choices for nonempty drafts. Confirm replacement.
-- Add up to 30 named plain-text snippets capped at 1,000 units. Insert without formatting as one undo action; request explicit append if the saved caret is invalid.
-- Add first-use Paste/Format/Copy instructions and Try example. Returning users resume saved state only after hydration completes. New post creates a draft; confirmed reset remains undoable.
-
-### Storage, backup, and recovery
-
-- Implement create, rename, duplicate, open, and confirmed delete for up to 50 drafts. Reject draft 51 with an export-or-delete message.
-- Autosave 800 ms after a committed edit; flush on draft switch and visibility changes where possible. Report Saving, Saved locally, or Could not save only according to transaction outcomes.
-- Prevent hydration from overwriting a stored draft with empty initial state. Keep unsaved data in memory through failures and draft switches, and offer export.
-- Keep the last three successfully saved revisions per draft; preview recovery and restore as a new draft subject to the draft cap.
-- Coordinate tabs through BroadcastChannel and revision checks performed atomically with saving. Pause conflicting writes and offer a new copy or reload of saved state. Never silently overwrite.
-- Define versioned JSON schemas for single-draft export and complete backup, including snippets and applicable local settings. Validate files up to 1 MB, document nodes, marks, source sizes, and collection caps before committing any state.
-- Preview import effects and commit atomically. Invalid imports leave current data unchanged. Stage migrations on validated copies, preserve recoverable original payloads, and commit atomically.
-- Handle corrupted drafts individually with raw backup export and deletion while leaving other drafts usable.
-- Implement confirmed Delete all local data for drafts, recovery, snippets, preferences, and recent emojis. Explain local storage limitations and browser-data clearing.
-
-### Exit evidence
-
-Integration tests cover every cleanup cancellation and undo path, find across runs, snippet focus loss, invalid/oversized imports, reload durability, failed saves, hydration, draft limits, recovery, migration rollback, and two-tab conflicts. All feature workflows work with keyboard and expose concise live-region statuses.
-
-## 7. Milestone 4 — Offline completion, launch validation, and handover
-
-### Offline, privacy, and public content
-
-- Cache the application shell and complete emoji resources with versioned caches. Test offline startup, editing, picker use, local draft access, and export after the first successful online load.
-- Keep the previous usable cache until the replacement shell is ready. Offer an update prompt, save before reload, and handle save failures or tab conflicts without losing drafts.
-- Add manifest metadata and optional installation. Never put draft data into cache requests or other network payloads.
-- Apply a restrictive CSP for the static deployment; render user text safely and validate imports. Inspect network traffic to verify posts, selections, titles, clipboard data, and emoji searches remain local. Keep private data out of URLs, logs, and error reporting.
-- Write original help for Unicode styling, Tamil preservation, mobile copy, recovery, Markdown cleanup, counts, accessibility, and experimental effects.
-- Publish compatibility information with actual last-tested dates, surfaces, and limitations. Add an independent-tool footer disclaimer without LinkedIn branding.
-- Add title, description, canonical URL, social preview, sitemap, and public help routes. Index public pages only. Share tool copies only the configured public site URL.
-
-### Validation and launch evidence
-
-- Test the latest two stable Chrome, Edge, Firefox, and Safari releases at launch, plus current Android Chrome and iOS Safari. Record exact versions.
-- Run Playwright desktop workflows and denied/absent clipboard scenarios; use actual mobile devices for touch selection, keyboard layout, IME, and LinkedIn app paste.
-- Check keyboard-only operation, focus return, Escape dismissal, contrast, 320 px layouts, 200% zoom, NVDA on Windows, and VoiceOver on iOS/macOS.
-- Measure production compressed JS/CSS against 350 KB excluding lazy-loaded emoji data. Measure toolbar/preview response under 100 ms for a 3,000-unit draft on a representative mid-range device; document any approved budget exception.
-- Validate output in a user-owned LinkedIn composer on desktop web, Android app, and iOS app. Check URLs/query strings, hashtags, Tamil mixed with English, accents, emoji sequences, lists, whitespace, glyphs, and trailing newlines.
-- Establish current feed-post limits and counting behaviour through real paste tests, record results, and adjust advisory configuration. Do not publish test posts without separate authorization.
-- Run moderated usability sessions with at least five representative users, including one mobile-first user. Target four of five completing paste/select/bold/emoji/copy within 60 seconds without coaching; all five must recover original words through undo or plain export.
-- Record screenshots where appropriate, browser/OS versions, LinkedIn surfaces, font differences, timing and bundle results, privacy evidence, usability outcomes, and unresolved defects.
-
-### Exit and handover
-
-Block launch for text loss, draft overwrite, transformed protected URLs, duplicate overlays, incorrect copy, paste/import script execution, broken Tamil composition, inaccessible core controls, or failed offline workflows. Document minor native-font differences in experimental effects and preserve plain alternatives. The owner approves release and selects the deployment URL/display name; placeholders do not block development.
-
-Deliver source, lockfile, build/deployment instructions, typed configuration, JSON schemas, mapping fixtures, dataset versions/licences, automated tests, browser/device evidence, privacy evidence, migration/conflict/update tests, usability checklist, known limitations, compatibility log, and maintenance guide.
-
-## 8. Acceptance coverage and test ownership
-
-| Requirement area | Primary validation | Milestone |
+| Release | Included phases | Outcome |
 | --- | --- | --- |
-| F01 safe editing/paste, source caps, IME, selection | Editor integration and real-device tests | 1 |
-| F02–F04 styles, families, overlays, clearing/imported cleanup | Unicode goldens and transaction tests | 2 |
-| Protected tokens, graphemes, counts, source/output parity | Unit fixtures plus browser copy tests | 2 |
-| F06–F07 lists, spacing, history | Document-operation integration tests | 2 |
-| F09 text copy/export and F10 preview/checks | Clipboard success/failure, exact-output fixtures | 2 |
-| F05 emoji and F08 drafts | Local metadata, persistence, reload tests | 3 |
-| JSON backup/import, revisions, concurrency, migration | Atomicity, validation, failure and two-tab tests | 3 |
-| Markdown, templates, snippets, find/replace, reset | Preview/cancel, caret, exact undo tests | 3 |
-| Accessibility and responsive layouts | Keyboard, zoom, screen-reader, device checks | 3–4 |
-| Offline startup and safe shell updates | Production service-worker browser tests | 4 |
-| Privacy/security, performance, LinkedIn compatibility | Network inspection, build metrics, real paste | 4 |
-| First-use success and word recovery | Five-user moderated checklist | 4 |
+| Foundation | 0 | Verified baseline, migration fixtures and release decisions |
+| A — Core P0 | 1–3 | Typed facts, safe channel updates, exact copy and recurring campaigns |
+| B — Checker P0 | 4–5 | Standalone checker first, then the identical engine in the workspace |
+| Validation | 6 | Real first-use and repeat-use evidence before expansion |
+| C — Evidence P1 | 7 | Paste-back audit, accessible HTML reports, Change Finder and locale/share extensions |
+| D — Conditional P2 | 8 | Portability and selected extensions after demand, security and browser review |
 
-Each milestone is complete only when its export behaviour and failure paths pass, not when its interface renders. Maintain a requirement checklist referencing the specification sections and the evidence files. Run focused checks during development and the complete release suite before deployment.
+No calendar duration is asserted without a baseline audit, implementation estimates and available staffing. The integrated pilot requires a 30-day repeat-use observation window; checker fixture work may proceed alongside core work after Phase 0, but standalone release must precede embedded checker release.
 
-## 9. Risks and follow-up decisions
+## 2. Repository baseline and implementation boundaries
 
-- **Selection and composition:** Resolve Tiptap/mobile/IME limitations in milestone 1 before building dependent tools.
-- **Source and list semantics:** Freeze the newline/list model with golden round-trip examples to prevent blank-line or trailing-newline loss.
-- **Unicode and token recognition:** Use explicit mapping tables and cross-run fixtures. Preserve uncertain characters and tokens with notices.
-- **Persistence and updates:** Use atomic revision checks, recovery copies, and safe service-worker updates to avoid overwrite and reload loss.
-- **Bundle size:** Measure early; choose editor extensions, segmentation fallback, parser, and lazy emoji loading accordingly.
-- **Platform behaviour:** Native glyphs, screen-reader pronunciation, and LinkedIn limits require recorded evidence rather than promises.
-- **Owner configuration:** Final brand name, domain, and release approval remain owner decisions. The developer owns dependency review, fixtures, browser testing, caches, and compatibility maintenance each release.
+The repository currently identifies itself as a v3 application using React, TypeScript, Vite, Tiptap and IndexedDB. Existing implementation notes describe Quick Format, four destination versions, text-based shared references, guarded updates, recovery, copy receipts, import/export and offline behavior. These are reuse candidates, not proof that v5 requirements are complete.
 
-After launch, collect voluntary feedback with a warning against confidential drafts. Recheck paste compatibility after reported changes and keep plain copy available during investigation. Cloud sync, team presets, additional defensible script mappings, AI assistance, and scheduling require separate future scope; snippets and offline support are already part of release 1.
+| Existing area | Planned use |
+| --- | --- |
+| `src/model.ts`, `src/studio.ts`, `src/studioValidation.ts` | Add versioned typed facts, campaigns, occurrence metadata and validation |
+| `src/editor.ts`, `src/operations.ts`, `src/unicode.ts` | Retain source integrity, reference editing, selection, Unicode and undo safeguards |
+| `src/storage.ts`, `src/useWorkbench.ts` | Extend migrations, guarded atomic updates, campaign persistence and recovery |
+| `src/services.ts`, `src/paste.ts` | Audit and reuse exact copy, export and safe input handling |
+| `src/ui/App.tsx`, `src/ui/StudioControls.tsx` | Simplify to Quick Format and Campaign workspace; add fact review and checker entry points |
+| `schemas/`, `tests/`, `docs/release-evidence/` | Version contracts, regression fixtures and dated release evidence |
+
+Proposed new boundaries, subject to Phase 0 audit: `src/facts/` for validation/rendering/detection, `src/campaigns/` for duplication and update coordination, `src/checker/` for the pure engine and adapters, and `src/audit/` for paste-back, Change Finder and report generation. Keep rendering, checking and persistence separate; standalone entry routes reuse engines rather than fork behavior.
+
+## 3. Phase 0 — Baseline audit and delivery contracts
+
+**Dependency:** none. **Priority:** prerequisite for all releases.
+
+Work:
+
+- Inventory actual code, deployed schema if available, destination adapters, clipboard behavior, recovery, service worker and existing tests. Record verified, partial, missing and untested requirements.
+- Establish regression fixtures for legacy schema-0/schema-1 drafts, v3 bundles, backups, shared references, exceptions, email subjects and independently edited versions.
+- Design additive schema upgrades and rollback/raw-export recovery. Do not infer typed values from legacy text without user confirmation; preserve legacy literal bindings.
+- Identify the actual stored revision guard. The current model uses `revision`; map the specification's `recordRevision` concept explicitly rather than introduce inconsistent concurrency fields.
+- Establish data contracts, limits, migration strategy and requirement-to-test mapping before changing persistence.
+- Confirm dedicated product-origin and HTTPS/CSP deployment requirements. Domain, legal naming and trademark clearance remain unresolved decisions, with no availability claim.
+- Obtain the referenced standalone Pre-publish Checker v1.3 source and fixture set before certifying full checker conformance. The v5 document gives an integration contract but does not establish that the entire external fixture set is present.
+
+Deliverables: baseline gap matrix, migration design, retained regression fixtures, checker fixture inventory and updated release checklist.
+
+Exit gate: old drafts/backups round-trip without loss; every retained safeguard has a verification path; missing source fixtures and hosting decisions are explicitly recorded. Existing evidence is labeled by version and does not count automatically as v5 evidence.
+
+## 4. Phase 1 — Typed facts and campaign data foundation
+
+**Dependency:** Phase 0. **Priority:** P0 / Release A.
+
+Work:
+
+- Add Campaign records with IDs, title, optional recurrence label, timestamps, revision, fact/draft relationships and optional parent campaign ID.
+- Add stable UUID Facts and Occurrences. Facts carry type, canonical value, metadata, revision and required destinations. Occurrences connect fact IDs to source nodes and destination-specific templates/exceptions.
+- Support `date`, `time`, `datetime`, `money`, `phone`, `url` and compatible `literal` facts.
+- Validate calendar dates; retain IANA timezone for time/datetime; surface ambiguous local times and use DST-aware handling where supported. Never infer a missing zone.
+- Store money as decimal strings plus ISO currency; avoid floating-point arithmetic. Store phones as E.164 plus original display and separate extensions; never silently guess country codes.
+- Accept only validated HTTP(S) URLs with exact targets; reject unsafe schemes and control characters.
+- Build deterministic templates with locale, date/time style, currency/phone/zone display and destination overrides. Template changes do not alter canonical values.
+- Add atomic versioned import/export with strict limits, relationship validation, ID remapping and discarded incoming copy receipts. Preserve prior recovery payloads and unknown/damaged data for raw export.
+- Document local persistence consent and provide a usable transient path until saving is chosen. Keep standalone checker persistence separate from workspace storage.
+
+Deliverables: typed schemas, fact validators, template renderer, campaign storage and migrations.
+
+Exit gate: T01, T02 and T08 pass, including malformed values, timezone ambiguity, precise money, unsafe URLs, legacy literal references and failed-import rollback. Calendar rendering must correctly identify 18 October 2026 as Sunday; this is separate from the initially disabled checker weekday rule.
+
+## 5. Phase 2 — Reviewed binding and safe multi-channel updates
+
+**Dependency:** Phase 1. **Priority:** P0 / Release A.
+
+Work:
+
+- Detect candidate dates, times, INR prices, HTTP(S) URLs and phone numbers using deterministic parsers with source ranges and ambiguity information.
+- Protect URL spans; avoid overlapping duplicate suggestions; preserve grapheme boundaries and IME composition.
+- Add “Keep consistent” confirmation with type, normalized value, proposed rendering and user-selected occurrences. Manual selection/type assignment remains available when detection fails.
+- Require explicit day/month choice for ambiguous dates. Require a timezone for times or retain them as literals. Never auto-bind or rewrite source text.
+- Render bound occurrences from their stable fact IDs; keep independent channel wording and destination overrides intact.
+- Preview each destination diff before a canonical change. Atomically commit canonical revision, affected versions/output hashes, copy-state changes and recovery snapshot under the revision guard.
+- Abort stale-tab transactions. One undo restores the complete update, including statuses and fact revisions.
+- Support detach and documented exceptions scoped to destination/fact revision; canonical changes make prior exceptions stale.
+- Show Current, Missing required fact, Different/detached with exception, Changed since copy and Unverified external message. Required-detail failures require repair or explicit exception; formatting warnings remain nonblocking.
+- Retain previous approved values and bounded variants as checker/audit metadata without changing the canonical typed-value contract.
+
+Deliverables: suggestion UI, occurrence binding, diff review, atomic update/undo and revision-specific status handling.
+
+Exit gate: T03–T04 pass. Updating one fact affects only bound occurrences across destinations; identical unbound text remains unchanged. Conflicts and transaction failures leave no partial updates. Checker metadata does not become authoritative source content.
+
+## 6. Phase 3 — Recurrence, exact copy and Release A readiness
+
+**Dependency:** Phase 2. **Priority:** P0 / Release A.
+
+Work:
+
+- Make Quick Format directly accessible without campaign creation, facts or a mandatory brief. Retain drafts, snippets, keyboard access and accessible plain-text defaults; keep Unicode opt-in.
+- Remove mandatory brief/objective/CTA flows from the core journey while retaining legacy data safely. Brand profiles are optional and do not block the pilot.
+- Default new users to WhatsApp; retain existing users' chosen destination. Support WhatsApp, LinkedIn, email and Generic in the pilot.
+- Preserve separate email subject/body, sanitized rich clipboard output and plain-copy fallback. Keep “Text to copy” equal to the actual payload for the selected copy mode.
+- Record copy receipts only after successful copying; invalidate prior copy state only when output changes. Do not claim publication or delivery.
+- Add “Duplicate with new facts”: create new campaign/fact/occurrence/draft IDs, remap relationships and preserve lineage and original history.
+- Require valid replacement values; explicitly review expired registration links. Recurrence never triggers automatic scheduling.
+- Preserve autosave, conflict recovery, Trash, protected spans, offline startup and safe service-worker updates.
+
+Deliverables: complete create/link/update/copy/reuse journey and Release A evidence package.
+
+Exit gate: T05–T08, T15, V5-01 and the Quick Format portion of V5-07 pass. Demonstrate exact copy, unchanged output receipts, duplicate isolation and old-backup migration. Release A requires actual browser/mobile, keyboard, screen-reader, IME, storage-failure and destination-client checks, not browser emulation alone.
+
+## 7. Phase 4 — Pure checker and standalone Release B entry
+
+**Dependency:** Phase 0 contracts and checker fixture inventory; Phase 1 supplies the typed adapter design. Standalone release follows Release A. **Priority:** P0.
+
+Work:
+
+- Implement a pure JavaScript-compatible module with explicit types:
+  `check(messageText, approvedFacts, now, timeZone, options)` returning `findings`, `skippedChecks` and `checkScope`.
+- Inject clock/timezone; return rule ID, matched literal, message range, expected value, severity and explanation. Never mutate input, drafts or clipboard payloads.
+- Implement the bounded date variants, including `17 Oct`, `17th October`, `Oct 17` and `October 17th`. Skip ambiguous numeric yearless dates and explain the skip.
+- Generate `6 PM`, `6:00 PM` and `18:00` only from confirmed time values. Standalone time can use a term fact; the workspace adapter maps native time facts.
+- Support specified Indian +91 mobile forms, including hyphens; STD-code landlines remain exact-literal checks.
+- Require explicit review for URL variants; distinct hosts, paths and query strings remain distinct. Do not fetch destinations or follow redirects.
+- Retain old approved variants as forbidden values after changes. Tamil/Hindi matching is literal substring matching without word-boundary guarantees; no paraphrase equivalence.
+- Show timezone, defaulting to Asia/Kolkata. Configured expiry is inclusive through the final millisecond of its minute.
+- Keep checker weekday validation OFF initially; enable only in a separately verified change after every core fixture passes.
+- Build a no-login standalone UI with current/previous facts and manual corrections. Label results “Checked against supplied facts” and show skipped checks and scope.
+- Keep messages in memory only. “Save facts on this device” defaults OFF and persists only approved/prior values with delete/reset controls and the same-origin access notice.
+- Prepare standalone deployment on the dedicated HTTPS product origin with strict CSP, self-hosted assets and no third-party scripts by default.
+
+Deliverables: engine, conformance fixtures, standalone checker, persistence controls and deployed-header verification evidence.
+
+Exit gate: V5-02, V5-04–V5-06 and standalone V5-07 pass. Complete the referenced v1.3 fixture set before claiming conformance. Test 18:30:59.999 valid / 18:31:00.000 expired and 23:59:59.999 valid / next-day 00:00:00.000 expired in selected zones. Verify message text never enters storage, logs, URLs or network requests; test real mobile/browser use before standalone release.
+
+## 8. Phase 5 — Embedded checker and public entry routes
+
+**Dependency:** Phases 3–4; standalone engine fixtures and release gate must pass first. **Priority:** P0 / complete Release B.
+
+Work:
+
+- Translate IndexedDB typed facts into checker input without changing the canonical schema. Include prior values, explicit reviewed variants and configured expiry metadata.
+- Add “Check before copy” over the exact selected output; display findings and manual correction paths without silently changing source or copy payload.
+- Keep canonical required-detail copy guards distinct from checker findings. Introduce no new automatic repair or unspecified blanket copy blocking.
+- Prove standalone/embedded parity using identical text, normalized facts, clock, timezone and options.
+- Add public entry routes for LinkedIn formatter, WhatsApp checker, event announcement checker and link/contact checker. Each offers an immediate useful task and an optional path into the workspace.
+- Apply independent Message Studio identity with Sriram Advisory creator credit, transparent compatibility notes and real examples/how-to demonstrations.
+- Add voluntary “This was wrong” feedback with optional user-written description and no automatic message attachment.
+- Keep analytics absent by default. If consented measurement is enabled, allow only aggregate event metadata through an explicit allowlist; never collect content, names, URLs, phone numbers, fact values or document data.
+
+Deliverables: canonical adapter, integrated checking flow, shared entry routes and privacy-reviewed feedback/measurement contract.
+
+Exit gate: V5-01, V5-03, V5-07 and V5-10 pass. Adapter/engine parity and nonmutation tests pass, including old-value variants. Browser/mobile evidence confirms free access, no mandatory signup and immediate tasks without campaign setup.
+
+## 9. Phase 6 — Checker and recurring-message pilot
+
+**Dependency:** Release B verified; recruitment/preparation may begin earlier. **Priority:** expansion gate.
+
+Work:
+
+- Recruit at least five real checker users and fifteen recurring-message users, including at least five WhatsApp-heavy users in the integrated group. Report any cohort overlap explicitly.
+- Observe their current manual workflow first, with consent and non-sensitive sample content. Do not collect private drafts.
+- Measure voluntary first completed format/check/copy task, successful first-task time, missed issues, false alarms, recurrence/duplicate use and recommendations.
+- Observe a second genuine task and genuine 7/30-day return use. Prompted demonstrations and visitor counts do not establish adoption.
+- Run controlled safety fixtures and time comparisons; publish actual counts, denominators and observations rather than invented adoption claims.
+
+Inherited pilot hypotheses:
+
+| Measure | Proposed gate |
+| --- | --- |
+| Unaided create/link/update/copy across three channels | At least 10/15 |
+| Bind at least three facts without facilitation | At least 10/15 within three minutes |
+| Unintended edits to unbound fixture text | Zero |
+| Median date-and-link change time against current method | At least 30% reduction |
+| Genuine duplicate/reuse within 30 days | At least 8/15 |
+| Voluntary preference for the next recurring campaign | At least 8/15; compare with actual reuse |
+
+Deliverables: content-free pilot results, issue/false-alarm log, second-task evidence and a documented expand/fix/retest decision.
+
+Exit gate: observations are complete and reported honestly. Thresholds remain hypotheses; missed gates lead to documented improvements and retesting rather than claims of success. Monetization experiments remain outside this plan.
+
+## 10. Phase 7 — Audit, reports and Change Finder
+
+**Dependency:** reliable P0 workflow and repeat-use evidence from Phase 6. **Priority:** P1 / Release C.
+
+Work:
+
+- Add paste-back audit for user-supplied external text with campaign/destination selection. Report Current, Drift detected, Missing, Ambiguous or Cannot verify.
+- Compare recognized typed dates/money using documented locale/timezone rules and safely normalized URLs without fetching or redirect-following. Display expected/observed values, source spans, confidence and manual resolution.
+- Keep broader typed paste-back interpretation separate from the narrow literal checker contract; share safe helpers only where behavior is equivalent. Never imply semantic verification of paraphrases.
+- Build Change Finder for explicitly pasted/uploaded user content and prior/current facts: exact locations, source labels and manual review checklist. Define supported formats, parser limits and malformed-file behavior before enabling uploads; process locally and never crawl or bulk-replace.
+- Generate accessible, escaped, self-contained printable HTML reports with campaign, timestamp, typed facts, destination results, exceptions, adapter versions and copied/changed status. Include manually verified findings where provided.
+- Label reports “Prepared locally; not evidence of publication or delivery.” Distinguish local checks, human verification, external approval and semantic truth. Include no external scripts/assets.
+- Add en-IN, ta-IN and hi-IN presets and real script/IME fixtures without translation claims.
+- Add explicit Web Share actions where supported, confirmed WhatsApp link fallback and graceful copy fallback. Handle encoding/length limits and cancellations; sharing does not mark delivery.
+- Publish a dated platform/client/device compatibility matrix with versions, fixtures, observations, limitations and reproducible steps; mark unsupported/untested combinations.
+
+Deliverables: audit UI, safe HTML report, Change Finder, locale/share extensions and compatibility evidence.
+
+Exit gate: T09–T12, V5-08–V5-09 and the public-matrix portion of T14 pass. Seeded drift fixtures never silently report Current. Verify HTML injection resistance, local upload handling, uncertainty labels, share cancellation and actual mobile/client behavior.
+
+## 11. Phase 8 — Conditional portability and future modules
+
+**Dependency:** repeat-use demand, a separate scope decision, security review and supported-browser evidence. **Priority:** P2 / conditional Release D.
+
+Candidate work, approved individually:
+
+- User-selected File System Access folders with explicit permissions, revision/conflict checks, safe saves and download fallback. Explain that a synced folder may upload through the user's provider.
+- Authenticated encrypted export with user-chosen passphrase, documented key-loss/metadata limitations and cross-device restore fixtures. QR carries only bounded encrypted payloads or descriptors; do not promise secure pairing without a threat model.
+- Browser Print to PDF first; consider a dedicated renderer only after demand and accessibility evaluation.
+- Android PWA share-target with manifest/service-worker/browser tests and no universal iOS claim.
+- Content-free open-source serializer/adapters, versioned schema and conformance fixtures after license, dependency and security review.
+- Instagram, Facebook and X only after client verification; X additionally needs a reviewed weighted-count implementation and fixtures.
+- Claims & Evidence Registry remains research-only. Feedback Theme Organizer needs separate validation and user-defined themes/source examples, without sentiment or representativeness claims.
+- Collaboration and cloud sync need separate demand, consent, identity/security and conflict designs; accounts never become prerequisites for free core access.
+
+Exit gate: T13 and applicable T14 pass for each approved extension. Unapproved candidates remain explicitly deferred. AI writing, automatic publishing, scheduling, native apps and payments are not delivery commitments.
+
+## 12. Cross-phase quality and release evidence
+
+Every shipped stage requires:
+
+- Appropriate unit/integration fixtures plus configured browser workflows; run `npm test`, `npm run check`, `npm run build` and the relevant Playwright projects. Record results rather than assuming prior runs remain valid.
+- Real mobile devices and named destination clients; actual keyboard/screen-reader and Hindi/Tamil IME testing. Record device, OS, browser/client version, date, fixture, result and limitation.
+- Clipboard-denied/manual fallback, storage quota/private mode, import failure, stale-tab conflicts, recovery, undo and offline-update checks where relevant.
+- Deployed HTTPS/CSP header verification: restrictive self-origin policy, blocked objects/base/embed behavior and narrowly justified worker/style allowances.
+- A reproducible offline test: initial load/install, disconnect, edit/update/copy/export and inspect network logs. Distinguish initial downloads/update checks and explicit external links/share/provider-folder actions from editor operations.
+- No content in diagnostics, crash logs or analytics. Standalone message text is never persisted; checker facts are opt-in; workspace local saving is documented and opt-in. IndexedDB is not encrypted backup; clearing site data may erase drafts.
+- A dated evidence package and updated launch checklist. A phase is complete only when its acceptance tests and actual device/browser gate pass; publish unverified compatibility honestly.
+
+## 13. Acceptance traceability
+
+| Requirement | Owning phase(s) |
+| --- | --- |
+| T01 typed facts / T02 templates | 1 |
+| T03 suggestions / T04 selective updates | 2 |
+| T05 recurrence / T06 copy / T07 Quick Format | 3 |
+| T08 legacy migration | 0–1, regression gate in 3 |
+| T09 paste-back / T10 India locale / T11 report / T12 share | 7 |
+| T13 folder/transfer | 8, only if approved |
+| T14 public evidence | 7 matrix; 8 open-source fixtures |
+| T15 privacy | All releases; verified in 3–5 and later extensions |
+| V5-01 free/no compulsory signup | All releases |
+| V5-02 dedicated origin and standalone privacy | 0, 4 |
+| V5-03 identical standalone/embedded results | 5 |
+| V5-04 previous values and bounded variants | 2, 4–5 |
+| V5-05 inclusive minute expiry | 4 |
+| V5-06 initial weekday rule disabled | 4 |
+| V5-07 no campaign/facts prerequisite for simple tasks | 3–5 |
+| V5-08 user-supplied Change Finder only | 7 |
+| V5-09 honest report boundaries | 7 |
+| V5-10 content-free analytics/feedback | 5–6, maintained thereafter |
+
+## 14. Immediate execution backlog
+
+1. Complete the Phase 0 gap matrix and preserve legacy draft/backup fixtures.
+2. Finalize typed fact, occurrence and campaign contracts with the additive migration proposal.
+3. Implement validators/templates before suggestion UI and safe-update transactions.
+4. Complete and verify Release A recurrence/copy flows.
+5. Obtain the checker v1.3 fixtures, implement the pure engine and release standalone before integration.
+6. Complete parity, privacy, device and dedicated-origin checks for Release B.
+7. Run the genuine repeat-use pilot before committing to Release C expansion.

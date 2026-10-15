@@ -3,10 +3,14 @@ import { config } from './config';
 import { activeDoc, state, version, remapDraft, type Studio, type Destination, type Brand } from './studio';
 import { newDraft, validateDraft, validatePreferences, validateSnippets, type Backup, type Doc, type Draft, type Preferences, type Snippet } from './model';
 import { ConflictError, defaultPreferences, storage } from './storage';
+import { CampaignStore } from './campaigns/storage';
+import { campaignFromLegacy, remapWorkspaceBackup, refreshCampaignDraft, type CampaignMetadata } from './campaigns/transfer';
+import type { CampaignBundle } from './campaigns/model';
 
 export function useWorkbench() {
   const [draft, setDraft] = useState<Draft>(newDraft()); const current = useRef(draft);
   const [drafts, setDrafts] = useState<Draft[]>([]); const [corrupt, setCorrupt] = useState<{ id: string; raw: unknown; legacy: boolean }[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignMetadata[]>([]);
   const [ready, setReady] = useState(false), [saveState, setSaveState] = useState('Loading local drafts…'), [message, setMessage] = useState('');
   const [conflict, setConflict] = useState(false); const conflictRef = useRef(false);
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
@@ -25,7 +29,7 @@ export function useWorkbench() {
     if (expired.length) { try { await storage.purgeTrash(expired); raw = await storage.list(); } catch { /* A concurrent restore wins; retry on the next refresh. */ } }
     const valid: Draft[] = [], invalid: typeof corrupt = [];
     for (const item of raw) { try { validateDraft(item); valid.push(item); } catch { const x = item as { id?: string; schemaVersion?: number }; if (typeof x?.id === 'string') invalid.push({ id: x.id, raw: item, legacy: x.schemaVersion === 0 }); } }
-    valid.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); setDrafts(valid); setCorrupt(invalid); return valid;
+    valid.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); setDrafts(valid); setCorrupt(invalid); setCampaigns(await storage.campaignMetadata()); return valid;
   }
   function markConflict() { conflictRef.current = true; setConflict(true); setSaveState('Conflict — saving paused'); }
   function clearConflict() { conflictRef.current = false; setConflict(false); }
@@ -130,17 +134,26 @@ export function useWorkbench() {
     let all = drafts; try { all = await refresh(); } catch { /* Export available without storage. */ }
     const others = all.filter(d => d.id !== current.current.id); const active = current.current;
     let brandProfile: Brand | undefined; try { brandProfile = await storage.meta<Brand | undefined>('brandProfile',undefined); } catch { /* Export active content even when storage is denied. */ }
-    return { schemaVersion: 1, kind: 'backup', drafts: [...others, active], snippets, preferences, recent, ...(brandProfile ? { brandProfile } : {}) };
+    let metadata = campaigns;
+    try { metadata = await storage.campaignMetadata(); } catch { notify('Storage is unavailable. Exporting the drafts and campaign metadata already loaded in this tab.'); }
+    const latestDrafts = [...others, active];
+    // A backup is also an escape path for unsaved edits/conflicts. Reconcile only the
+    // exported snapshot; never require a successful write or mutate stored records.
+    const allCampaigns = metadata.map(c => c.campaign.draftIds.reduce((snapshot, id) => {
+      const d = latestDrafts.find(d => d.id === id); return d ? refreshCampaignDraft(snapshot, d) : snapshot;
+    }, c));
+    return { schemaVersion: 1, kind: 'backup', drafts: latestDrafts, snippets, preferences, recent, ...(brandProfile ? { brandProfile } : {}), ...(allCampaigns.length ? { campaigns: allCampaigns } : {}) };
   }
   async function importData(data: Draft | Backup) {
     if (!await flush()) throw Error('Resolve or export unsaved changes before importing.');
     maintenance.current = true;
     try {
-      const drafts = ('kind' in data ? data.drafts : [data]).map(remapDraft);
-      const incomingSnippets = 'kind' in data ? data.snippets.map(s => ({ ...s, id: crypto.randomUUID() })) : [];
+      const remapped = 'kind' in data ? remapWorkspaceBackup(data) : undefined;
+      const drafts = remapped ? remapped.drafts : [remapDraft(data as Draft)];
+      const incomingSnippets = remapped?.snippets || [];
       const merged = [...snippets, ...incomingSnippets]; validateSnippets(merged);
       for (const d of drafts) if (d.studio?.trashedAt) d.studio.trashedAt = new Date().toISOString();
-      await storage.addImported(drafts, merged, 'kind' in data ? data.brandProfile : undefined, 'kind' in data ? data.preferences : undefined);
+      await storage.addImported(drafts, merged, 'kind' in data ? data.brandProfile : undefined, 'kind' in data ? data.preferences : undefined, remapped?.campaigns);
       const restoredPreferences = await storage.meta('preferences',preferences); setPreferences(restoredPreferences);
       setSnippets(merged); if (drafts[0]) { adopt(drafts[0]); setLoadVersion(v => v + 1); }
       await refresh(); channel.current?.postMessage({ type: 'save', id: current.current.id, revision: current.current.revision, tab: tabId.current });
@@ -151,7 +164,7 @@ export function useWorkbench() {
     maintenance.current = true;
     try {
       const expected = await storage.list();
-      const next = { ...data, drafts: data.drafts.map(remapDraft), snippets: data.snippets.map(s => ({ ...s, id: crypto.randomUUID() })) };
+      const next = remapWorkspaceBackup(data);
       await storage.importBackup(next, expected); setSnippets(next.snippets); setPreferences(next.preferences); setRecent(next.recent); adopt(next.drafts[0] || newDraft()); setLoadVersion(v => v + 1); clearConflict(); await refresh(); channel.current?.postMessage({ type: 'reset', tab: tabId.current });
     } finally { maintenance.current = false; }
   }
@@ -168,6 +181,32 @@ export function useWorkbench() {
     } finally { maintenance.current = false; }
   }
   async function saveCaret(selection: { from: number; to: number }) { if (!ready || composing.current) return; try { await storage.setMeta('active', { id: current.current.id, selection }); } catch { /* Caret persistence is best effort. */ } }
-  return { draft, drafts, corrupt, ready, saveState, message, notify, conflict, preferences, snippets, recent, resumeSelection, loadVersion, composing, document: state(draft).editingOriginal ? draft.editorDocument : activeDoc(draft), updateDraft, setStudio, chooseDestination, editVersion, resetVersion, editSubject, duplicate, restoreTrash, emptyTrash, edit, rename, flush, select, create, keepCopy, reload, remove, setPreference, saveSnippets, chooseEmoji, backup, importData, replaceWorkspace, deleteDrafts, saveCaret, refresh };
+  async function createCampaign(title: string) {
+    if (!title.trim()) throw Error('Enter a campaign title.');
+    if (!await flush()) throw Error('Resolve unsaved changes before creating a campaign.');
+    if ((await storage.campaignMetadata()).some(c => c.campaign.draftIds.includes(current.current.id))) throw Error('This draft already belongs to a campaign.');
+    const d = structuredClone(current.current); d.studio = { ...state(d), campaign: title.trim() };
+    const identify = (doc: Doc) => { for (const p of doc.content) for (const n of p.content || []) if (n.type === 'sharedDetail' && !n.attrs.nodeId) n.attrs.nodeId = crypto.randomUUID(); };
+    identify(d.editorDocument); for (const v of Object.values(d.studio.versions)) { if (v.overrideDocument) identify(v.overrideDocument); identify(v.subject); }
+    const saved = await new CampaignStore(storage).save(campaignFromLegacy(d),null);
+    adopt(saved.drafts[0]); setLoadVersion(v => v + 1); await refresh();
+    channel.current?.postMessage({ type:'save',id:saved.drafts[0].id,revision:saved.drafts[0].revision,tab:tabId.current });
+  }
+  async function exportCampaign() {
+    if (!await flush()) throw Error('Resolve unsaved changes before exporting this campaign.');
+    const meta = (await storage.campaignMetadata()).find(c => c.campaign.draftIds.includes(current.current.id));
+    if (!meta) throw Error('Create a campaign for this draft first.');
+    const bundle = await new CampaignStore(storage).get(meta.campaign.id); if (!bundle) throw Error('Campaign no longer available.'); return bundle;
+  }
+  async function importCampaign(bundle: CampaignBundle) {
+    if (!await flush()) throw Error('Resolve unsaved changes before importing.');
+    maintenance.current = true;
+    try {
+      const saved = await new CampaignStore(storage).import(bundle);
+      if (saved.drafts[0]) { adopt(saved.drafts[0]); setLoadVersion(v => v + 1); await storage.setMeta('active',{ id:saved.drafts[0].id }); }
+      await refresh(); channel.current?.postMessage({ type:'save',id:current.current.id,revision:current.current.revision,tab:tabId.current });
+    } finally { maintenance.current = false; }
+  }
+  return { draft, drafts, campaigns, createCampaign, exportCampaign, importCampaign, corrupt, ready, saveState, message, notify, conflict, preferences, snippets, recent, resumeSelection, loadVersion, composing, document: state(draft).editingOriginal ? draft.editorDocument : activeDoc(draft), updateDraft, setStudio, chooseDestination, editVersion, resetVersion, editSubject, duplicate, restoreTrash, emptyTrash, edit, rename, flush, select, create, keepCopy, reload, remove, setPreference, saveSnippets, chooseEmoji, backup, importData, replaceWorkspace, deleteDrafts, saveCaret, refresh };
 }
 export type Workbench = ReturnType<typeof useWorkbench>;

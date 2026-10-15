@@ -25,4 +25,6 @@ Other features include brand snapshots, separate email subjects, sanitized rich 
 
 All content stays in the browser. Clearing browser data removes drafts. Export backups regularly. The app has no account, AI API, publishing, scheduling or analytics integration.
 
+The v5 foundation now adds reviewed typed values and channel display templates in **Shared details**, plus **Campaign: Create or import** for local campaign creation and JSON transfer. Full workspace backups include campaign relationships. Typed changes use the per-channel preview and reviewed undo; recurring duplication and automatic candidate suggestions are still pending. See [v5 implementation progress](docs/MESSAGE_STUDIO_V5_PROGRESS.md) for coverage and validation.
+
 See [implementation and verification notes](docs/MESSAGE_STUDIO_V3.md) for the schema audit, release checks and phased scope. Platform-client compatibility and pilot outcomes are unverified. Instagram, Facebook, X and full campaign-bundle organization belong to the specification's later phase.
