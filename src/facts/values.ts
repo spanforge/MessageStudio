@@ -1,3 +1,4 @@
+import { localDateTimeInstants } from './timezones';
 /** Canonical values are independent of channel display and legacy shared-detail text. */
 export type FactValue =
   | { type: 'date'; date: string }
@@ -47,6 +48,7 @@ export function validateFactValue(value: unknown): asserts value is FactValue {
     case 'literal': valid = text(value.text, 5000); break;
   }
   if (!valid) throw new Error(`Invalid ${String(value.type)} fact value.`);
+  if (value.type === 'datetime' && !localDateTimeInstants(value.date as string,value.time as string,value.timeZone as string).length) throw Error('This local datetime does not exist in the selected timezone. Choose a valid local time.');
 }
 
 export type DateTemplate = { locale: 'en-IN' | 'ta-IN' | 'hi-IN'; month: 'short' | 'long' | 'numeric'; weekday?: boolean; year?: boolean };

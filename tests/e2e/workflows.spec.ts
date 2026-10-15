@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { browserPaste } from './helpers';
+import { browserPaste, openSavedWorkspace } from './helpers';
 const source = (page: Page) => page.getByRole('textbox', { name: 'Post source editor' });
 const output = (page: Page) => page.getByTestId('export-output');
 async function paste(page: Page, text: string) {
@@ -8,7 +8,7 @@ async function paste(page: Page, text: string) {
 }
 async function selectAll(page: Page) { await source(page).focus(); await page.keyboard.press('Control+a'); }
 async function openTools(page: Page) { await page.getByRole('button', { name: 'More', exact: true }).click(); for (const group of await page.locator('.tool-group > summary').all()) await group.click(); }
-test.beforeEach(async ({ page }) => { await page.goto('/'); await expect(source(page)).toBeVisible(); await page.getByLabel('Opt in to Unicode emphasis').check(); });
+test.beforeEach(async ({ page }) => { await openSavedWorkspace(page); await expect(source(page)).toBeVisible(); await page.getByLabel('Opt in to Unicode emphasis').check(); });
 
 test('Unicode formatting protects tokens, preserves scripts, toggles and retains source', async ({ page }) => {
   const text = 'Hello தமிழ் é 👨‍👩‍👧‍👦\n\nhttps://example.com/a?q=one&b=two #தமிழ் @name\n';

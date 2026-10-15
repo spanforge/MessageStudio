@@ -1,0 +1,94 @@
+import 'fake-indexeddb/auto';
+import { beforeEach, expect, it } from 'vitest';
+import { Store, ConflictError } from '../../src/storage';
+import { SessionStorage } from '../../src/sessionStorage';
+import { fromText, newDraft, sourceText } from '../../src/model';
+import { newWorkspaceDraft } from '../../src/workspaceDefaults';
+import { state } from '../../src/studio';
+import { updateTypedDetail } from '../../src/studio';
+import { CampaignStore } from '../../src/campaigns/storage';
+import { campaignFromLegacy } from '../../src/campaigns/transfer';
+
+const disk = new Store();
+beforeEach(async () => { await disk.clear(); });
+it('keeps draft/receipt, reusable text and preference writes in memory until saving is chosen',async () => {
+  const session = new SessionStorage(); await session.initialize();
+  const draft = await session.save(newWorkspaceDraft(fromText('Private session')),0);
+  await session.setMeta('snippets',[{id:'s',title:'Private',text:'Only in memory'}]);
+  await session.setMeta('active',{id:draft.id});
+  expect(await disk.list()).toEqual([]); expect(await disk.meta('snippets',[])).toEqual([]);
+  expect(await disk.meta('active',null)).toBeNull();
+  expect(sourceText((await session.get(draft.id))!.editorDocument)).toBe('Private session');
+  await session.enableSaving();
+  expect(sourceText((await disk.get(draft.id))!.editorDocument)).toBe('Private session');
+  expect(await disk.meta('localSavingConsent',false)).toBe(true);
+  expect(await disk.meta('snippets',[])).toHaveLength(1);
+  const reopened = new SessionStorage(); await reopened.initialize(); expect(reopened.enabled).toBe(true);
+});
+it('reads legacy work without changing defaults or automatically opting into saving',async () => {
+  const old = await disk.save(newDraft(fromText('Legacy')),0);
+  const session = new SessionStorage(); await session.initialize();
+  expect(session.enabled).toBe(false);
+  expect(state((await session.get(old.id))!).activeDestination).toBe('linkedin');
+  expect(state(newWorkspaceDraft()).activeDestination).toBe('whatsapp');
+  expect(state(newWorkspaceDraft(undefined,undefined,'email')).activeDestination).toBe('email');
+  await session.save({...old,editorDocument:fromText('Session edit')},old.revision);
+  expect(sourceText((await disk.get(old.id))!.editorDocument)).toBe('Legacy');
+});
+it('aborts consent and all pending writes when a stored draft changes in another tab',async () => {
+  const old = await disk.save(newDraft(fromText('Old')),0);
+  const session = new SessionStorage(); await session.initialize();
+  await session.save({...old,editorDocument:fromText('Session')},old.revision);
+  await session.save(newWorkspaceDraft(fromText('New session')),0);
+  await disk.save({...old,editorDocument:fromText('Other tab')},old.revision);
+  await expect(session.enableSaving()).rejects.toBeInstanceOf(ConflictError);
+  expect(session.enabled).toBe(false); expect(await disk.list()).toHaveLength(1);
+  expect(await disk.meta('localSavingConsent',false)).toBe(false);
+  expect(sourceText((await session.get(old.id))!.editorDocument)).toBe('Session');
+  const reloaded = await session.reloadSaved(old.id);
+  expect(sourceText(reloaded!.editorDocument)).toBe('Other tab');
+  await session.enableSaving();
+  expect(await disk.list()).toHaveLength(2);
+  expect(sourceText((await disk.get(old.id))!.editorDocument)).toBe('Other tab');
+});
+it('retains damaged raw records and unrelated history when enabling saving',async () => {
+  const saved = await disk.save(newDraft(fromText('Existing')),0);
+  const db = await disk.open();
+  await new Promise<void>((resolve,reject) => { const tx = db.transaction('drafts','readwrite'); tx.objectStore('drafts').put({id:'broken',schemaVersion:999,raw:'Keep raw'}); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+  const session = new SessionStorage(); await session.initialize();
+  await session.save(newWorkspaceDraft(fromText('New')),0); await session.enableSaving();
+  expect(await disk.raw('broken')).toEqual({id:'broken',schemaVersion:999,raw:'Keep raw'});
+  expect(await disk.revisions(saved.id)).toHaveLength(1);
+});
+it('allows explicit deletion of stored and session drafts without opting into new writes',async () => {
+  await disk.save(newDraft(fromText('Existing')),0);
+  const session = new SessionStorage(); await session.initialize();
+  await session.save(newWorkspaceDraft(fromText('Session')),0);
+  await session.clearDrafts();
+  expect(await session.list()).toEqual([]); expect(await disk.list()).toEqual([]);
+  expect(session.enabled).toBe(false); expect(await disk.meta('localSavingConsent',false)).toBe(false);
+});
+it('reconciles an existing campaign only when session edits are explicitly saved',async () => {
+  const draft = newWorkspaceDraft();
+  draft.studio.sharedDetails = [{id:'date',label:'Date',kind:'date',canonicalValue:'18 October',revision:0,requiredDestinations:[]}];
+  draft.editorDocument.content[0].content = [{type:'sharedDetail',attrs:{detailId:'date',value:'18 October',nodeId:'node'}}];
+  const campaigns = new CampaignStore(disk), old = await campaigns.save(campaignFromLegacy(draft),null);
+  const session = new SessionStorage(); await session.initialize();
+  await session.save(updateTypedDetail(old.drafts[0],'date',{type:'date',date:'2026-10-19'}),old.drafts[0].revision);
+  expect((await campaigns.get(old.campaign.id))!.facts[0].value).toEqual({type:'literal',text:'18 October'});
+  await session.enableSaving();
+  const saved = (await campaigns.get(old.campaign.id))!;
+  expect(saved.facts[0].value).toEqual({type:'date',date:'2026-10-19'});
+  expect(saved.campaign.revision).toBe(old.campaign.revision+1);
+  expect(await disk.revisions(draft.id)).toHaveLength(2);
+});
+it('permanently purges explicitly selected session Trash without opting into saving',async () => {
+  const old = await disk.save(newDraft(fromText('Old')),0), unrelated = await disk.save(newDraft(fromText('Keep')),0);
+  const session = new SessionStorage(); await session.initialize();
+  const trash = await session.save({...old,studio:{...state(old),trashedAt:new Date().toISOString()}},old.revision);
+  const fresh = newWorkspaceDraft(fromText('Session trash')); fresh.studio.trashedAt = new Date().toISOString();
+  const sessionTrash = await session.save(fresh,0);
+  await session.permanentlyPurgeTrash([trash,sessionTrash]);
+  expect(await session.get(old.id)).toBeUndefined(); expect(await session.get(fresh.id)).toBeUndefined();
+  expect(await disk.get(unrelated.id)).toEqual(unrelated); expect(session.enabled).toBe(false);
+});

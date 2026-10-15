@@ -66,6 +66,48 @@ export class Store {
   async revisions(id: string): Promise<Draft[]> { const db = await this.open(); const v = await request(db.transaction('revisions').objectStore('revisions').get(id)); return (v?.snapshots || []).filter((d: unknown) => { try { validateDraft(d); return true; } catch { return false; } }); }
   async meta<T>(id: string, fallback: T): Promise<T> { const db = await this.open(); const v = await request(db.transaction('meta').objectStore('meta').get(id)); return v ? v.value as T : fallback; }
   async setMeta(id: string, value: unknown): Promise<void> { const db = await this.open(); const tx = db.transaction('meta', 'readwrite'); tx.objectStore('meta').put({ id, value }); await complete(tx); }
+  /** Explicit saving consent commits pending session drafts and metadata together. */
+  async saveSession(pending: Draft[], metadata: Map<string,unknown>): Promise<Draft[]> {
+    pending.forEach(validateDraft);
+    const db = await this.open(), tx = db.transaction(STORES,'readwrite');
+    const drafts = tx.objectStore('drafts'), meta = tx.objectStore('meta');
+    let failure: Error | undefined;
+    const now = new Date().toISOString();
+    const saved = pending.map(d => ({ ...structuredClone(d),revision:d.revision+1,updatedAt:now }));
+    const read = drafts.getAll();
+    read.onsuccess = () => {
+      const prior = new Map(read.result.map(d => [d.id,d]));
+      if (prior.size + pending.filter(d => !prior.has(d.id)).length > config.draftLimit) { failure = Error('50 drafts reached. Export or delete a draft first.'); tx.abort(); return; }
+      if (pending.some(d => prior.has(d.id) ? prior.get(d.id).revision !== d.revision : d.revision !== 0)) { failure = new ConflictError(); tx.abort(); return; }
+      const records = meta.getAll();
+      records.onsuccess = () => {
+        try {
+          const all = new Map(prior); saved.forEach(d => all.set(d.id,d));
+          for (const record of records.result) if (record.id.startsWith('campaign-v5:') && record.value?.kind === 'campaign' && saved.some(d => record.value.campaign.draftIds.includes(d.id))) {
+            let campaign = record.value as CampaignMetadata;
+            for (const d of saved) if (campaign.campaign.draftIds.includes(d.id)) campaign = refreshCampaignDraft(campaign,d);
+            campaign.campaign.revision++; campaign.campaign.updatedAt = now;
+            validateCampaignBundle({ ...campaign,drafts:campaign.campaign.draftIds.map(id => all.get(id)) });
+            meta.put({id:record.id,value:campaign});
+          }
+          for (const d of saved) {
+            drafts.put(d);
+            const old = prior.get(d.id);
+            if (old && !old.studio && d.studio) {
+              const original = tx.objectStore('migrationBackup').get(d.id);
+              original.onsuccess = () => { if (!original.result) tx.objectStore('migrationBackup').put({id:d.id,payload:old}); };
+            }
+            const revisions = tx.objectStore('revisions'), history = revisions.get(d.id);
+            history.onsuccess = () => revisions.put({id:d.id,snapshots:[...(history.result?.snapshots || []),d].slice(-config.recoveryLimit)});
+          }
+          for (const [id,value] of metadata) meta.put({id,value});
+          meta.put({id:'localSavingConsent',value:true});
+        } catch(e) { failure = e as Error; tx.abort(); }
+      };
+    };
+    try { await complete(tx); } catch(e) { throw failure || e; }
+    return saved;
+  }
   async campaignMetadata(): Promise<CampaignMetadata[]> {
     const db = await this.open(); const records = await request(db.transaction('meta').objectStore('meta').getAll());
     return records.filter((r: any) => r.id.startsWith('campaign-v5:') && r.value?.kind === 'campaign').map((r: any) => r.value);
@@ -85,10 +127,10 @@ export class Store {
     };
     try { await complete(tx); } catch(e) { throw failure || e; }
   }
-  async purgeTrash(drafts: Draft[]): Promise<void> {
+  async purgeTrash(drafts: Draft[], includeSessionTrash = false): Promise<void> {
     const db = await this.open(); const tx = db.transaction(['drafts','revisions','meta','migrationBackup'], 'readwrite'); let conflict = false;
     removeCampaignMetadata(tx, drafts.map(d => d.id));
-    for (const d of drafts) { const read = tx.objectStore('drafts').get(d.id); read.onsuccess = () => { if (read.result?.revision !== d.revision || !read.result?.studio?.trashedAt) { conflict = true; tx.abort(); return; } tx.objectStore('drafts').delete(d.id); tx.objectStore('revisions').delete(d.id); tx.objectStore('migrationBackup').delete(d.id); }; }
+    for (const d of drafts) { const read = tx.objectStore('drafts').get(d.id); read.onsuccess = () => { if (read.result ? read.result.revision !== d.revision || !includeSessionTrash && !read.result.studio?.trashedAt : !includeSessionTrash) { conflict = true; tx.abort(); return; } tx.objectStore('drafts').delete(d.id); tx.objectStore('revisions').delete(d.id); tx.objectStore('migrationBackup').delete(d.id); }; }
     try { await complete(tx); } catch(e) { if (conflict) throw new ConflictError(); throw e; }
   }
   async clear(): Promise<void> { const db = await this.open(); const tx = db.transaction(STORES, 'readwrite'); for (const name of STORES) tx.objectStore(name).clear(); await complete(tx); }
@@ -106,6 +148,7 @@ export class Store {
       for (const name of ['drafts', 'revisions']) tx.objectStore(name).clear();
       for (const d of backup.drafts) { tx.objectStore('drafts').put(d); tx.objectStore('revisions').put({ id: d.id, snapshots: [d] }); }
       const meta = tx.objectStore('meta'); meta.clear();
+      meta.put({id:'localSavingConsent',value:true});
       for (const c of backup.campaigns || []) meta.put({ id: `campaign-v5:${c.campaign.id}`, value: c });
       for (const [id, value] of Object.entries({ snippets: backup.snippets, preferences: backup.preferences, recent: backup.recent, ...(backup.brandProfile ? { brandProfile: backup.brandProfile } : {}) })) meta.put({ id, value });
     };

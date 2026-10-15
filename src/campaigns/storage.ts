@@ -37,7 +37,7 @@ export class CampaignStore {
     return this.save(incoming, null);
   }
   /** null means create-only; otherwise both campaign and draft revisions must match. */
-  async save(bundle: CampaignBundle, expected: number | null): Promise<CampaignBundle> {
+  async save(bundle: CampaignBundle, expected: number | null, sourceGuard?: CampaignBundle): Promise<CampaignBundle> {
     validateCampaignBundle(bundle);
     if (expected !== null && bundle.campaign.revision !== expected) throw new ConflictError();
     const db = await this.store.open();
@@ -49,6 +49,16 @@ export class CampaignStore {
       const now = new Date().toISOString();
       next.campaign.revision = (expected ?? 0) + 1; next.campaign.updatedAt = now;
       const meta = tx.objectStore('meta'), drafts = tx.objectStore('drafts');
+      if (sourceGuard) {
+        const sourceRead = meta.get(key(sourceGuard.campaign.id));
+        sourceRead.onsuccess = () => {
+          if (sourceRead.result?.value?.campaign.revision !== sourceGuard.campaign.revision) abort(new ConflictError());
+        };
+        for (const draft of sourceGuard.drafts) {
+          const sourceDraft = drafts.get(draft.id);
+          sourceDraft.onsuccess = () => { if (sourceDraft.result?.revision !== draft.revision) abort(new ConflictError()); };
+        }
+      }
       const campaignRead = meta.get(key(bundle.campaign.id));
       campaignRead.onsuccess = () => {
         const old = campaignRead.result?.value as SavedCampaign | undefined;

@@ -3,7 +3,7 @@
 Source: `Message_Studio_Master_Product_Specification_v5_0.docx`, dated 13 October 2026.
 Plan prepared: 14 October 2026.
 Status: planned work; phase completion requires the evidence listed below.
-Implementation started: typed-fact editing/templates, reviewed channel updates/undo, campaign creation, versioned transfer and atomic workspace backup/lifecycle integration are recorded in [v5 progress](docs/MESSAGE_STUDIO_V5_PROGRESS.md). Deterministic suggestions, recurring duplication and actual device/browser release gates remain pending; Release A is not yet certified.
+Implementation started: typed facts/templates, reviewed updates/undo, campaign creation/duplication, transfer and workspace backup/lifecycle integration are recorded in [v5 progress](docs/MESSAGE_STUDIO_V5_PROGRESS.md). Simplified campaign entry, WhatsApp defaults, opt-in saving with a transient workspace, cross-format suggestions with selected matching occurrences, and initial DST fixtures are implemented. Remaining baseline tracing and actual device/browser release gates are pending; Release A is not yet certified.
 
 ## 1. Outcome and governing scope
 

@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { config } from './config';
-import { activeDoc, state, version, remapDraft, type Studio, type Destination, type Brand } from './studio';
-import { newDraft, validateDraft, validatePreferences, validateSnippets, type Backup, type Doc, type Draft, type Preferences, type Snippet } from './model';
-import { ConflictError, defaultPreferences, storage } from './storage';
+import { activeDoc, state, version, remapDraft, destinations, type Studio, type Destination, type Brand } from './studio';
+import { validateDraft, validatePreferences, validateSnippets, type Backup, type Doc, type Draft, type Preferences, type Snippet } from './model';
+import { ConflictError, defaultPreferences } from './storage';
+import { SessionStorage } from './sessionStorage';
+import { newWorkspaceDraft } from './workspaceDefaults';
 import { CampaignStore } from './campaigns/storage';
 import { campaignFromLegacy, remapWorkspaceBackup, refreshCampaignDraft, type CampaignMetadata } from './campaigns/transfer';
 import type { CampaignBundle } from './campaigns/model';
+import { duplicateCampaign as buildRecurrence, type RecurrenceReview } from './campaigns/duplicate';
 
 export function useWorkbench() {
-  const [draft, setDraft] = useState<Draft>(newDraft()); const current = useRef(draft);
+  const storage = useRef(new SessionStorage()).current;
+  const [savingEnabled,setSavingEnabled] = useState(false);
+  const [draft, setDraft] = useState<Draft>(newWorkspaceDraft()); const current = useRef(draft);
   const [drafts, setDrafts] = useState<Draft[]>([]); const [corrupt, setCorrupt] = useState<{ id: string; raw: unknown; legacy: boolean }[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignMetadata[]>([]);
   const [ready, setReady] = useState(false), [saveState, setSaveState] = useState('Loading local drafts…'), [message, setMessage] = useState('');
@@ -45,9 +50,9 @@ export function useWorkbench() {
         if (current.current.id === saved.id) {
           const merged = version === editGeneration.current ? saved : { ...current.current, revision: saved.revision, updatedAt: saved.updatedAt };
           current.current = merged; if (alive.current) setDraft(merged); dirty.current = version !== editGeneration.current;
-          if (alive.current) setSaveState(dirty.current ? 'Saving…' : 'Saved locally');
+          if (alive.current) setSaveState(storage.enabled ? (dirty.current ? 'Saving…' : 'Saved locally') : 'In this tab only');
         }
-        channel.current?.postMessage({ type: 'save', id: saved.id, revision: saved.revision, tab: tabId.current });
+        storage.enabled && channel.current?.postMessage({ type: 'save', id: saved.id, revision: saved.revision, tab: tabId.current });
         if (alive.current) await refresh(); return true;
       } catch (e) {
         if (e instanceof ConflictError) markConflict(); else setSaveState('Could not save — working in memory');
@@ -63,14 +68,15 @@ export function useWorkbench() {
     alive.current = true;
     (async () => {
       try {
+        await storage.initialize(); setSavingEnabled(storage.enabled);
         const list = await refresh(); const active = await storage.meta<{ id?: string; selection?: { from: number; to: number } }>('active', {});
         const activeList = list.filter(d => !d.studio?.trashedAt); const chosen = activeList.find(d => d.id === active.id) || activeList[0];
-        if (chosen) { adopt(chosen); setSaveState('Saved locally'); if (active.id === chosen.id) setResumeSelection(active.selection); }
-        else { adopt(newDraft()); setSaveState('New local draft'); }
+        if (chosen) { adopt(chosen); setSaveState(storage.enabled ? 'Saved locally' : 'In this tab only'); if (active.id === chosen.id) setResumeSelection(active.selection); }
+        else { const preferred = await storage.meta<unknown>('preferredDestination','whatsapp'); adopt(newWorkspaceDraft(undefined,undefined,list[0] ? state(list[0]).activeDestination : destinations.includes(preferred as Destination) ? preferred as Destination : 'whatsapp')); setSaveState(storage.enabled ? 'New local draft' : 'In this tab only'); }
         const pref = await storage.meta('preferences', defaultPreferences); validatePreferences(pref); setPreferences(pref);
         const snips = await storage.meta<Snippet[]>('snippets', []); validateSnippets(snips); setSnippets(snips);
         const rec = await storage.meta<string[]>('recent', []); if (Array.isArray(rec) && rec.length <= 30 && rec.every(s => typeof s === 'string' && s.length < 100)) setRecent(rec);
-      } catch { adopt(newDraft(), true); setSaveState('Could not load storage — working in memory'); notify('Local storage could not be loaded. Saved drafts have not been overwritten. You can edit and export this draft.'); }
+      } catch { adopt(newWorkspaceDraft(), true); setSaveState('Could not load storage — working in memory'); notify('Local storage could not be loaded. Saved drafts have not been overwritten. You can edit and export this draft.'); }
       finally { if (alive.current) setReady(true); }
     })();
     let bc: BroadcastChannel | undefined;
@@ -84,21 +90,21 @@ export function useWorkbench() {
       };
     }
     const visibility = () => { if (document.visibilityState === 'hidden') void flushRef.current(); };
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirty.current || composing.current || conflictRef.current) { event.preventDefault(); event.returnValue = ''; } };
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirty.current || storage.hasUnsavedContents || composing.current || conflictRef.current) { event.preventDefault(); event.returnValue = ''; } };
     document.addEventListener('visibilitychange', visibility); window.addEventListener('beforeunload', beforeUnload);
     return () => { alive.current = false; bc?.close(); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('beforeunload', beforeUnload); };
   }, []);
   useEffect(() => { if (!ready || composing.current) return; const timer = setTimeout(() => { void flushRef.current(); }, config.autosaveMs); return () => clearTimeout(timer); }, [change, ready]);
   useEffect(() => { document.documentElement.dataset.theme = preferences.theme; }, [preferences.theme]);
 
-  function updateDraft(d: Draft, reloadEditor = false) { validateDraft(d); adopt(d, true); setSaveState('Unsaved changes'); if (reloadEditor) setLoadVersion(v => v + 1); }
+  function updateDraft(d: Draft, reloadEditor = false) { validateDraft(d); adopt(d, true); setSaveState(storage.enabled ? 'Unsaved changes' : 'In this tab only'); if (reloadEditor) setLoadVersion(v => v + 1); }
   function setStudio(patch: Partial<Studio>, reloadEditor = false) { updateDraft({ ...current.current, studio: { ...state(current.current), ...patch } }); if (reloadEditor) setLoadVersion(v => v + 1); }
   function edit(doc: Doc) {
     const d = current.current, s = state(d);
     if (!s.editingOriginal && version(s).overrideDocument) setStudio({ versions: { ...s.versions, [s.activeDestination]: { ...version(s), overrideDocument: doc, revision: version(s).revision + 1 } } });
     else updateDraft({ ...d, editorDocument: doc, studio: { ...s, originalRevision: s.originalRevision + 1 } });
   }
-  function chooseDestination(id: Destination) { if (composing.current) throw Error('Finish composing before switching destinations.'); setStudio({ activeDestination: id, editingOriginal: !version(state(current.current), id).overrideDocument }, true); }
+  function chooseDestination(id: Destination) { if (composing.current) throw Error('Finish composing before switching destinations.'); setStudio({ activeDestination: id, editingOriginal: !version(state(current.current), id).overrideDocument }, true); void storage.setMeta('preferredDestination',id).catch(() => notify('Destination preference remains active in this tab.')); }
   function editVersion() { const s = state(current.current); setStudio({ editingOriginal: false, versions: { ...s.versions, [s.activeDestination]: { ...version(s), overrideDocument: structuredClone(activeDoc(current.current)), basedOnOriginalRevision: s.originalRevision } } }, true); }
   function resetVersion() { const s = state(current.current); setStudio({ editingOriginal: true, versions: { ...s.versions, [s.activeDestination]: { ...version(s), overrideDocument: undefined, basedOnOriginalRevision: s.originalRevision, revision: version(s).revision + 1 } } }, true); }
   function editSubject(doc: Doc) { const s = state(current.current); setStudio({ versions: { ...s.versions, email: { ...version(s, 'email'), subject: doc, revision: version(s, 'email').revision + 1 } } }); }
@@ -107,27 +113,27 @@ export function useWorkbench() {
     const next = remapDraft(input); next.title = title; const saved = await storage.save(next, 0); adopt(saved); setLoadVersion(v => v + 1); clearConflict(); await refresh(); await storage.setMeta('active', { id: saved.id });
   }
   function rename(title: string) { if (!title.trim() || title.length > 200) throw Error('Use a name from 1 to 200 characters.'); adopt({ ...current.current, title: title.trim() }, true); }
-  async function select(d: Draft) { if (!await flush()) throw Error('Save is blocked. Resolve the conflict or export the current draft before switching.'); const fresh = await storage.get(d.id); if (!fresh) throw Error('This draft is no longer available.'); adopt(fresh); setResumeSelection(undefined); clearConflict(); setSaveState('Saved locally'); await storage.setMeta('active', { id: fresh.id }); }
+  async function select(d: Draft) { if (!await flush()) throw Error('Save is blocked. Resolve the conflict or export the current draft before switching.'); const fresh = await storage.get(d.id); if (!fresh) throw Error('This draft is no longer available.'); adopt(fresh); setResumeSelection(undefined); clearConflict(); setSaveState(storage.enabled ? 'Saved locally' : 'In this tab only'); await storage.setMeta('active', { id: fresh.id }); }
   async function create(doc?: Doc, title?: string, allowConflict = false) {
     if (!allowConflict && !await flush()) throw Error('Export this draft or resolve its save failure before creating another.');
     const count = (await storage.list()).length; if (count >= config.draftLimit) throw Error('50 drafts reached. Export or delete a draft first.');
-    const d = newDraft(doc, title); const saved = await storage.save(d, 0); adopt(saved); clearConflict(); setResumeSelection(undefined); setSaveState('Saved locally'); await refresh(); await storage.setMeta('active', { id: saved.id }); channel.current?.postMessage({ type: 'save', id: saved.id, revision: saved.revision, tab: tabId.current });
+    const d = newWorkspaceDraft(doc,title,state(current.current).activeDestination); const saved = await storage.save(d, 0); adopt(saved); clearConflict(); setResumeSelection(undefined); setSaveState(storage.enabled ? 'Saved locally' : 'In this tab only'); await refresh(); await storage.setMeta('active', { id: saved.id }); storage.enabled && channel.current?.postMessage({ type: 'save', id: saved.id, revision: saved.revision, tab: tabId.current });
   }
-  async function keepCopy() { await duplicate(current.current, `${current.current.title.slice(0,140)} (copy)`, true); }
-  async function reload() { const saved = await storage.get(current.current.id); if (!saved) throw Error('The saved draft was removed. Keep this tab as a new copy.'); adopt(saved); setLoadVersion(v => v + 1); clearConflict(); setSaveState('Saved locally'); }
+  async function keepCopy() { const originalId = current.current.id; await duplicate(current.current, `${current.current.title.slice(0,140)} (copy)`, true); storage.discardSessionDraft(originalId); await refresh(); }
+  async function reload() { const saved = await storage.reloadSaved(current.current.id); if (!saved) throw Error('The saved draft was removed. Keep this tab as a new copy.'); adopt(saved); setLoadVersion(v => v + 1); clearConflict(); setSaveState(storage.enabled ? 'Saved locally' : 'In this tab only'); await refresh(); }
   async function remove(d: Draft) {
     if (d.id === current.current.id && !await flush()) throw Error('Resolve the save failure before deleting the active draft.');
     const latest = d.id === current.current.id ? current.current : d; await storage.save({ ...latest, studio: { ...state(latest), trashedAt: new Date().toISOString() } }, latest.revision);
-    channel.current?.postMessage({ type: 'delete', id: d.id, tab: tabId.current }); const list = (await refresh()).filter(d => !d.studio?.trashedAt);
+    storage.enabled && channel.current?.postMessage({ type: 'delete', id: d.id, tab: tabId.current }); const list = (await refresh()).filter(d => !d.studio?.trashedAt);
     if (d.id === current.current.id) {
-      const next = list[0] || newDraft();
+      const next = list[0] || newWorkspaceDraft();
       adopt(next); clearConflict(); setResumeSelection(undefined);
-      setSaveState(list.length ? 'Saved locally' : 'New local draft');
+      setSaveState(storage.enabled ? (list.length ? 'Saved locally' : 'New local draft') : 'In this tab only');
       await storage.setMeta('active', list.length ? { id: next.id } : {});
     }
     notify('Draft moved to Trash. Restore it from Drafts for seven days.');
   }
-  async function setPreference(patch: Partial<Preferences>) { const next = { ...preferences, ...patch }; setPreferences(next); try { await storage.setMeta('preferences', next); channel.current?.postMessage({ type: 'preferences', preferences: next, tab: tabId.current }); } catch { notify('Preference could not be saved. It remains active in this tab.'); } }
+  async function setPreference(patch: Partial<Preferences>) { const next = { ...preferences, ...patch }; setPreferences(next); try { await storage.setMeta('preferences', next); storage.enabled && channel.current?.postMessage({ type: 'preferences', preferences: next, tab: tabId.current }); } catch { notify('Preference could not be saved. It remains active in this tab.'); } }
   async function saveSnippets(next: Snippet[]) { validateSnippets(next); await storage.setMeta('snippets', next); setSnippets(next); }
   async function chooseEmoji(id: string) { const next = [id, ...recent.filter(x => x !== id)].slice(0, 30); setRecent(next); try { await storage.setMeta('recent', next); } catch { notify('Recent emoji history could not be saved.'); } }
   async function backup(): Promise<Backup> {
@@ -156,7 +162,7 @@ export function useWorkbench() {
       await storage.addImported(drafts, merged, 'kind' in data ? data.brandProfile : undefined, 'kind' in data ? data.preferences : undefined, remapped?.campaigns);
       const restoredPreferences = await storage.meta('preferences',preferences); setPreferences(restoredPreferences);
       setSnippets(merged); if (drafts[0]) { adopt(drafts[0]); setLoadVersion(v => v + 1); }
-      await refresh(); channel.current?.postMessage({ type: 'save', id: current.current.id, revision: current.current.revision, tab: tabId.current });
+      await refresh(); storage.enabled && channel.current?.postMessage({ type: 'save', id: current.current.id, revision: current.current.revision, tab: tabId.current });
     } finally { maintenance.current = false; }
   }
   async function replaceWorkspace(data: Backup) {
@@ -165,23 +171,24 @@ export function useWorkbench() {
     try {
       const expected = await storage.list();
       const next = remapWorkspaceBackup(data);
-      await storage.importBackup(next, expected); setSnippets(next.snippets); setPreferences(next.preferences); setRecent(next.recent); adopt(next.drafts[0] || newDraft()); setLoadVersion(v => v + 1); clearConflict(); await refresh(); channel.current?.postMessage({ type: 'reset', tab: tabId.current });
+      await storage.importBackup(next, expected); setSnippets(next.snippets); setPreferences(next.preferences); setRecent(next.recent); adopt(next.drafts[0] || newWorkspaceDraft()); setLoadVersion(v => v + 1); clearConflict(); await refresh(); storage.enabled && channel.current?.postMessage({ type: 'reset', tab: tabId.current });
     } finally { maintenance.current = false; }
   }
   async function restoreTrash(d: Draft) { const next = { ...d, studio: { ...state(d), trashedAt: undefined } }; await storage.save(next, d.revision); await refresh(); notify('Draft restored.'); }
-  async function emptyTrash() { const trash = (await refresh()).filter(d => d.studio?.trashedAt); await storage.purgeTrash(trash); await refresh(); }
+  async function emptyTrash() { const trash = (await refresh()).filter(d => d.studio?.trashedAt); await storage.permanentlyPurgeTrash(trash); await refresh(); }
 
   async function deleteDrafts() {
     maintenance.current = true;
     try {
       if (saving.current) await saving.current;
-      await storage.clearDrafts(); adopt(newDraft()); clearConflict(); setResumeSelection(undefined);
-      await refresh(); channel.current?.postMessage({ type: 'reset', tab: tabId.current });
+      await storage.clearDrafts(); adopt(newWorkspaceDraft()); clearConflict(); setResumeSelection(undefined);
+      await refresh(); storage.enabled && channel.current?.postMessage({ type: 'reset', tab: tabId.current });
       setSaveState('Drafts removed; new empty draft'); notify('All drafts deleted.');
     } finally { maintenance.current = false; }
   }
   async function saveCaret(selection: { from: number; to: number }) { if (!ready || composing.current) return; try { await storage.setMeta('active', { id: current.current.id, selection }); } catch { /* Caret persistence is best effort. */ } }
   async function createCampaign(title: string) {
+    storage.requireSaving();
     if (!title.trim()) throw Error('Enter a campaign title.');
     if (!await flush()) throw Error('Resolve unsaved changes before creating a campaign.');
     if ((await storage.campaignMetadata()).some(c => c.campaign.draftIds.includes(current.current.id))) throw Error('This draft already belongs to a campaign.');
@@ -190,7 +197,7 @@ export function useWorkbench() {
     identify(d.editorDocument); for (const v of Object.values(d.studio.versions)) { if (v.overrideDocument) identify(v.overrideDocument); identify(v.subject); }
     const saved = await new CampaignStore(storage).save(campaignFromLegacy(d),null);
     adopt(saved.drafts[0]); setLoadVersion(v => v + 1); await refresh();
-    channel.current?.postMessage({ type:'save',id:saved.drafts[0].id,revision:saved.drafts[0].revision,tab:tabId.current });
+    storage.enabled && channel.current?.postMessage({ type:'save',id:saved.drafts[0].id,revision:saved.drafts[0].revision,tab:tabId.current });
   }
   async function exportCampaign() {
     if (!await flush()) throw Error('Resolve unsaved changes before exporting this campaign.');
@@ -198,15 +205,47 @@ export function useWorkbench() {
     if (!meta) throw Error('Create a campaign for this draft first.');
     const bundle = await new CampaignStore(storage).get(meta.campaign.id); if (!bundle) throw Error('Campaign no longer available.'); return bundle;
   }
+  async function duplicateCampaign(source: CampaignBundle, review: RecurrenceReview) {
+    storage.requireSaving();
+    if (composing.current) throw Error('Finish composing before duplicating.');
+    if (!await flush()) throw Error('Resolve unsaved changes before duplicating.');
+    const next = buildRecurrence(source,review);
+    maintenance.current = true;
+    try {
+      const saved = await new CampaignStore(storage).save(next,null,source);
+      if (saved.drafts[0]) { adopt(saved.drafts[0]); setLoadVersion(v => v + 1); await storage.setMeta('active',{ id:saved.drafts[0].id }); }
+      await refresh(); storage.enabled && channel.current?.postMessage({ type:'save',id:current.current.id,revision:current.current.revision,tab:tabId.current });
+    } finally { maintenance.current = false; }
+  }
   async function importCampaign(bundle: CampaignBundle) {
+    storage.requireSaving();
     if (!await flush()) throw Error('Resolve unsaved changes before importing.');
     maintenance.current = true;
     try {
       const saved = await new CampaignStore(storage).import(bundle);
       if (saved.drafts[0]) { adopt(saved.drafts[0]); setLoadVersion(v => v + 1); await storage.setMeta('active',{ id:saved.drafts[0].id }); }
-      await refresh(); channel.current?.postMessage({ type:'save',id:current.current.id,revision:current.current.revision,tab:tabId.current });
+      await refresh(); storage.enabled && channel.current?.postMessage({ type:'save',id:current.current.id,revision:current.current.revision,tab:tabId.current });
     } finally { maintenance.current = false; }
   }
-  return { draft, drafts, campaigns, createCampaign, exportCampaign, importCampaign, corrupt, ready, saveState, message, notify, conflict, preferences, snippets, recent, resumeSelection, loadVersion, composing, document: state(draft).editingOriginal ? draft.editorDocument : activeDoc(draft), updateDraft, setStudio, chooseDestination, editVersion, resetVersion, editSubject, duplicate, restoreTrash, emptyTrash, edit, rename, flush, select, create, keepCopy, reload, remove, setPreference, saveSnippets, chooseEmoji, backup, importData, replaceWorkspace, deleteDrafts, saveCaret, refresh };
+  async function enableSaving() {
+    if (composing.current) throw Error('Finish composing before enabling saving.');
+    if (!await flush()) throw Error('Resolve the current conflict before enabling saving.');
+    const generation = editGeneration.current;
+    maintenance.current = true;
+    try {
+      const saved = await storage.enableSaving();
+      setSavingEnabled(true);
+      const active = saved.find(d => d.id === current.current.id);
+      if (active) {
+        const changed = generation !== editGeneration.current;
+        adopt(changed ? { ...current.current,revision:active.revision,updatedAt:active.updatedAt } : active,changed);
+      }
+      setSaveState(dirty.current ? 'Unsaved changes' : 'Saved locally');
+      await refresh();
+      storage.enabled && channel.current?.postMessage({type:'save',id:current.current.id,revision:current.current.revision,tab:tabId.current});
+      notify('Saving enabled on this device. Export backups regularly.');
+    } finally { maintenance.current = false; }
+  }
+  return { storage, savingEnabled, enableSaving, draft, drafts, campaigns, createCampaign, exportCampaign, importCampaign, duplicateCampaign, corrupt, ready, saveState, message, notify, conflict, preferences, snippets, recent, resumeSelection, loadVersion, composing, document: state(draft).editingOriginal ? draft.editorDocument : activeDoc(draft), updateDraft, setStudio, chooseDestination, editVersion, resetVersion, editSubject, duplicate, restoreTrash, emptyTrash, edit, rename, flush, select, create, keepCopy, reload, remove, setPreference, saveSnippets, chooseEmoji, backup, importData, replaceWorkspace, deleteDrafts, saveCaret, refresh };
 }
 export type Workbench = ReturnType<typeof useWorkbench>;

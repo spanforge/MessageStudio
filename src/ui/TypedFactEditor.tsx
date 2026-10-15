@@ -2,17 +2,22 @@ import { useState } from 'react';
 import type { FactValue } from '../facts/values';
 import { destinations, destinationNames, type Detail, type Destination } from '../studio';
 import { defaultFactTemplate, type FactTemplate } from '../facts/templates';
+import { localDateTimeInstants } from '../facts/timezones';
 
 export function TypedFactEditor({ detail, onPreview }: { detail: Detail; onPreview: (value: FactValue, templates: Partial<Record<Destination, FactTemplate>>) => void }) {
   const [type, setType] = useState<FactValue['type']>(detail.typed?.value.type || 'literal');
   const [value, setValue] = useState<FactValue>(detail.typed?.value || { type: 'literal', text: detail.canonicalValue });
   const [templates, setTemplates] = useState<Partial<Record<Destination, FactTemplate>>>(detail.typed?.templates || Object.fromEntries(destinations.map(id => [id, defaultFactTemplate(id)])));
   const [destination, setDestination] = useState<Destination>('whatsapp');
+  const [ambiguityReviewed,setAmbiguityReviewed] = useState(false);
+  let ambiguous = false;
+  if (value.type === 'datetime') { try { ambiguous = localDateTimeInstants(value.date,value.time,value.timeZone).length > 1; } catch { /* Validation reports incomplete fields on preview. */ } }
   const t = templates[destination] || defaultFactTemplate(destination);
-  const field = (name: string, label: string, inputType = 'text', fallback = '') => <label>{label}<input type={inputType} maxLength={2000} value={String((value as unknown as Record<string, string>)[name] || fallback)} onChange={e => { const next = { ...value, [name]: e.target.value } as unknown as Record<string, unknown>; if (!e.target.value && ['extension','label'].includes(name)) delete next[name]; setValue(next as FactValue); }} /></label>;
+  const field = (name: string, label: string, inputType = 'text', fallback = '') => <label>{label}<input type={inputType} maxLength={2000} value={String((value as unknown as Record<string, string>)[name] || fallback)} onChange={e => { setAmbiguityReviewed(false); const next = { ...value, [name]: e.target.value } as unknown as Record<string, unknown>; if (!e.target.value && ['extension','label'].includes(name)) delete next[name]; setValue(next as FactValue); }} /></label>;
   function choose(next: FactValue['type']) {
     setType(next);
-    const empty: Record<FactValue['type'], FactValue> = { date: { type:'date',date:'' }, time: { type:'time',time:'',timeZone:'Asia/Kolkata' }, datetime: { type:'datetime',date:'',time:'',timeZone:'Asia/Kolkata' }, money: { type:'money',amount:'',currency:'INR' }, phone: { type:'phone',number:'',originalDisplay:'' }, url: { type:'url',url:'' }, literal: { type:'literal',text:detail.canonicalValue } };
+    setAmbiguityReviewed(false);
+    const empty: Record<FactValue['type'], FactValue> = { date: { type:'date',date:'' }, time: { type:'time',time:'',timeZone:'' }, datetime: { type:'datetime',date:'',time:'',timeZone:'' }, money: { type:'money',amount:'',currency:'INR' }, phone: { type:'phone',number:'',originalDisplay:'' }, url: { type:'url',url:'' }, literal: { type:'literal',text:detail.canonicalValue } };
     setValue(empty[next]);
   }
   return <div className="detail-record"><h3>{detail.typed ? 'Edit typed fact' : 'Confirm a typed value'}</h3><p>Confirm the value yourself. Preview changes before applying; unlinked text stays unchanged.</p>
@@ -30,6 +35,6 @@ export function TypedFactEditor({ detail, onPreview }: { detail: Detail; onPrevi
       {type === 'money' && <label>Currency display<select aria-label="Currency display" value={t.currencyDisplay} onChange={e => setTemplates({ ...templates,[destination]: { ...t,currencyDisplay:e.target.value as FactTemplate['currencyDisplay'] } })}><option>code</option><option>symbol</option></select></label>}
       {type === 'phone' && <label>Phone display<select aria-label="Phone display" value={t.phoneDisplay} onChange={e => setTemplates({ ...templates,[destination]: { ...t,phoneDisplay:e.target.value as FactTemplate['phoneDisplay'] } })}><option>international</option><option>original</option></select></label>}
       {type === 'url' && <label>URL display<select aria-label="URL display" value={t.urlDisplay} onChange={e => setTemplates({ ...templates,[destination]: { ...t,urlDisplay:e.target.value as FactTemplate['urlDisplay'] } })}><option>target</option><option>label</option></select></label>}
-    </details><button onClick={() => onPreview(value, templates)}>Preview typed fact change</button>
+    </details>{type === 'time' && <p>A time without a date cannot identify daylight-saving overlaps. Confirm the timezone; the display keeps this local time.</p>}{ambiguous && <label className="check-label"><input type="checkbox" checked={ambiguityReviewed} onChange={e => setAmbiguityReviewed(e.target.checked)} />I reviewed this repeated local time. Keep the wall-clock time and timezone; no unique instant is implied.</label>}<button disabled={ambiguous && !ambiguityReviewed} onClick={() => onPreview(value, templates)}>Preview typed fact change</button>
   </div>;
 }

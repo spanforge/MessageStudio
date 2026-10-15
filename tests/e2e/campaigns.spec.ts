@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { browserPaste } from './helpers';
+import { browserPaste, openSavedWorkspace } from './helpers';
 const source = (p: Page) => p.getByRole('textbox',{name:'Post source editor'});
 async function link(page: Page) {
   await source(page).focus(); await source(page).evaluate(browserPaste,{plain:'18 October · unbound 18 October'});
@@ -10,7 +10,57 @@ async function link(page: Page) {
   await page.getByRole('button',{name:'Keep selected text consistent'}).click();
   await page.getByRole('button',{name:'Apply reviewed change'}).click();
 }
-test.beforeEach(async ({page}) => { await page.goto('/'); await expect(source(page)).toBeVisible(); });
+test.beforeEach(async ({page}) => { await openSavedWorkspace(page); await expect(source(page)).toBeVisible(); });
+test('recurring campaign review preserves original work and persists isolated replacements',async ({page}) => {
+  await link(page);
+  await page.getByRole('button',{name:'Campaign: Create or import'}).click();
+  await page.getByLabel('Campaign title',{exact:true}).fill('October workshop');
+  await page.getByRole('button',{name:'Create campaign from this draft'}).click();
+  await page.getByRole('button',{name:'Duplicate with new facts',exact:true}).click();
+  await page.getByLabel('New campaign title',{exact:true}).fill('November workshop');
+  await page.getByLabel('Recurrence label (optional)',{exact:true}).fill('Monthly');
+  await expect(page.getByRole('button',{name:'Preview recurring campaign'})).toBeDisabled();
+  await page.getByLabel('Launch date: Exact literal text',{exact:true}).fill('15 November');
+  await page.getByLabel('Reviewed Launch date for the next occurrence',{exact:true}).check();
+  await page.getByRole('button',{name:'Preview recurring campaign'}).click();
+  await expect(source(page)).toContainText('18 October');
+  await page.setViewportSize({width:360,height:800});
+  expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze()).violations).toEqual([]);
+  await page.getByRole('button',{name:'Create reviewed recurring campaign'}).click();
+  await expect(page.getByRole('button',{name:'Campaign: November workshop'})).toBeVisible();
+  await expect(page.getByTestId('export-output')).toContainText('15 November');
+  await expect(page.getByTestId('export-output')).toContainText('unbound 18 October');
+  await page.reload();
+  await expect(page.getByRole('button',{name:'Campaign: November workshop'})).toBeVisible();
+  await page.getByRole('button',{name:/Drafts/}).click();
+  const download = page.waitForEvent('download'); await page.getByRole('button',{name:'Backup all drafts'}).click();
+  const file = await download, stream = await file.createReadStream(), chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  const backup = JSON.parse(Buffer.concat(chunks).toString());
+  const old = backup.campaigns.find((c: any) => c.campaign.title === 'October workshop');
+  const next = backup.campaigns.find((c: any) => c.campaign.title === 'November workshop');
+  expect(next.campaign.parentCampaignId).toBe(old.campaign.id);
+  expect(old.facts[0].value.text).toBe('18 October');
+  expect(next.facts[0].value.text).toBe('15 November');
+});
+test('suggestions require ambiguity review and bind only the chosen occurrence with undo',async ({page}) => {
+  await source(page).focus();
+  await source(page).evaluate(browserPaste,{plain:'03/04/2026 and unbound 03/04/2026'});
+  await page.getByRole('button',{name:'Shared details',exact:true}).click();
+  await page.getByRole('button',{name:'Find fact suggestions',exact:true}).click();
+  await page.getByRole('button',{name:'03/04/2026 · occurrence 1',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Confirm value and review format'})).toBeDisabled();
+  await page.getByLabel('Confirmed suggestion value').selectOption('0');
+  await page.getByRole('button',{name:'Confirm value and review format'}).click();
+  await page.getByRole('button',{name:'Preview typed fact change'}).click();
+  await expect(source(page)).toHaveText('03/04/2026 and unbound 03/04/2026');
+  await page.getByRole('button',{name:'Apply reviewed change'}).click();
+  await expect(page.getByTestId('export-output')).toContainText('Apr');
+  await expect(page.getByTestId('export-output')).toContainText('unbound 03/04/2026');
+  await expect(source(page).locator('[data-detail-id]')).toHaveCount(1);
+  await page.getByRole('button',{name:'Undo reviewed change',exact:true}).click();
+  await expect(source(page)).toHaveText('03/04/2026 and unbound 03/04/2026');
+});
 test('typed date review preserves unlinked wording, channel formats, reload and full backup',async ({page}) => {
   await link(page);
   await page.getByRole('button',{name:'Shared details',exact:true}).click();

@@ -1,10 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { browserPaste } from './helpers';
+import { browserPaste, openSavedWorkspace } from './helpers';
 const source = (p: Page) => p.getByRole('textbox', { name: 'Post source editor' });
 const output = (p: Page) => p.getByTestId('export-output');
 async function paste(p: Page, text: string) { await source(p).focus(); await p.keyboard.press('Control+a'); await source(p).evaluate(browserPaste,{plain:text}); }
-test.beforeEach(async ({page})=> { await page.goto('/'); await expect(source(page)).toBeVisible(); await page.getByLabel('Opt in to Unicode emphasis').check(); });
+test.beforeEach(async ({page})=> { await openSavedWorkspace(page); await expect(source(page)).toBeVisible(); await page.getByLabel('Opt in to Unicode emphasis').check(); });
 
 test('collapsed toolbar toggles stay active for typing and Advanced needs selection', async ({page})=> {
   await source(page).focus(); await page.getByRole('button',{name:'Bold',exact:true}).click(); await expect(page.getByRole('button',{name:'Bold',exact:true})).toHaveAttribute('aria-pressed','true');
@@ -14,7 +14,7 @@ test('collapsed toolbar toggles stay active for typing and Advanced needs select
 
 test('storage denied still allows editing, copy fallback and editable export', async ({page})=> {
   await page.addInitScript(()=> { Object.defineProperty(window,'indexedDB',{get(){throw new Error('Storage denied');}}); }); await page.reload(); await expect(source(page)).toBeVisible(); await paste(page,'Memory-only words தமிழ்');
-  await expect(page.locator('.save-status')).toContainText('Could not save'); await expect(output(page)).toHaveText('Memory-only words தமிழ்'); await page.getByRole('button',{name:'Export ↓'}).click(); const pending = page.waitForEvent('download'); await page.getByRole('button',{name:'Editable draft JSON'}).click(); expect((await pending).suggestedFilename()).toContain('.json');
+  await expect(page.locator('.save-status')).toContainText('In this tab only'); await expect(output(page)).toHaveText('Memory-only words தமிழ்'); await page.getByRole('button',{name:'Export ↓'}).click(); const pending = page.waitForEvent('download'); await page.getByRole('button',{name:'Editable draft JSON'}).click(); expect((await pending).suggestedFilename()).toContain('.json');
 });
 
 test('corrupted saved draft cannot overwrite or prevent valid drafts opening', async ({page})=> {

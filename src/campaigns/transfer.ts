@@ -68,6 +68,12 @@ export function remapWorkspaceBackup(backup: Backup): Backup {
     c.campaign.draftIds.forEach((id, i) => remapped.set(id, bundle.drafts[i]));
     const { drafts: _drafts, ...metadata } = bundle; return metadata;
   });
+  // Restore lineage only when both ends belong to this imported workspace.
+  const campaignIds = new Map((backup.campaigns || []).map((c,i) => [c.campaign.id,campaigns[i].campaign.id]));
+  (backup.campaigns || []).forEach((c,i) => {
+    const parent = c.campaign.parentCampaignId && campaignIds.get(c.campaign.parentCampaignId);
+    if (parent) campaigns[i].campaign.parentCampaignId = parent;
+  });
   return { ...structuredClone(backup), drafts: backup.drafts.map(d => remapped.get(d.id) || remapDraft(d)), snippets: backup.snippets.map(s => ({ ...s, id: crypto.randomUUID() })), ...(backup.campaigns ? { campaigns } : {}) };
 }
 /** Reconcile explicit detail edits with the campaign in the same draft-save transaction. */

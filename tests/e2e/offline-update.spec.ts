@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
-import { browserPaste } from './helpers';
+import { browserPaste, openSavedWorkspace } from './helpers';
 
 test('service-worker update waits for save, preserves drafts, and a failed install keeps the working shell', async ({page,context})=>{
   let generation=1, failAsset=false; const root=resolve('dist');
@@ -18,7 +18,7 @@ test('service-worker update waits for save, preserves drafts, and a failed insta
   });
   await new Promise<void>(r=>server.listen(0,'127.0.0.1',r)); const address=server.address() as {port:number};
   try {
-    await page.goto(`http://127.0.0.1:${address.port}`);const src=page.getByRole('textbox',{name:'Post source editor'}); await src.waitFor();
+    await openSavedWorkspace(page,`http://127.0.0.1:${address.port}`);const src=page.getByRole('textbox',{name:'Post source editor'}); await src.waitFor();
     await src.evaluate(browserPaste,{plain:'Before update'});
     await expect(page.locator('.save-status')).toHaveText('✓ Saved locally');await page.evaluate(async()=>{await navigator.serviceWorker.ready;if(!navigator.serviceWorker.controller)await new Promise<void>(r=>navigator.serviceWorker.addEventListener('controllerchange',()=>r(),{once:true}));});
     generation=2;await page.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();await r!.update();});await expect(page.getByRole('button',{name:'Save & update'})).toBeVisible();

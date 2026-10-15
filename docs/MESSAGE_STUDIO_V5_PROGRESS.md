@@ -59,12 +59,47 @@ At the end of the second increment, these APIs were not exposed in the editor an
 
 Actual Android/iOS devices, other browser engines, screen readers and destination-client paste compatibility remain unverified for this increment.
 
-## Next implementation increment
+## Current implementation backlog
 
-1. Implement deterministic candidate suggestions with protected ranges and explicit ambiguity confirmation.
-2. Add “Duplicate with new facts,” lineage and expired-link review to the campaign workflow.
-3. Simplify the campaign entry journey and apply WhatsApp defaults for new users while preserving existing preferences.
-4. Complete remaining template/timezone ambiguity fixtures and real-device/browser release evidence before certifying Release A.
-5. Build the standalone checker after obtaining the referenced v1.3 source fixtures; integrate only after standalone conformance.
+1. Complete remaining baseline/migration requirement tracing and Release A device/browser evidence.
+2. Extend deterministic detection only against explicit fixtures; yearless dates still require manual entry with a confirmed year.
+3. Obtain standalone checker v1.3 source fixtures, then build and verify the standalone checker before integration.
+4. Verify dedicated-origin HTTPS/CSP deployment and real destination-client behavior.
 
 Phase 0 and Phase 1 remain in progress. This increment does not certify Release A or v5 checker conformance.
+
+
+## Fourth increment - reviewed candidate suggestions (15 October 2026)
+
+- Added a pure deterministic suggestion parser returning exact UTF-16 source ranges for ISO dates, day-first named-month dates with years, slash dates with four-digit years, times, ungrouped INR amounts, HTTP(S) URLs and explicitly international phone numbers.
+- Numeric dates offer each valid day/month interpretation; no year or phone country is inferred. Times require an explicitly entered valid IANA timezone before confirmation.
+- Shared details now offers **Find fact suggestions**, one-occurrence selection, canonical confirmation and format review before the existing per-destination preview/apply/undo flow. Detection itself changes no source text.
+- URL/token protection, nonoverlap and grapheme boundaries prevent nested or partial candidates. The editor skips existing references, linked/code-marked text and code blocks. Composition and source-snapshot guards reject stale binding attempts.
+- Initial scope scans individual editor text nodes. Candidates split across formatting marks, grouped monetary amounts and yearless dates require manual selection; suggestions are not claimed to recognize every valid format. Selecting multiple occurrences together remains pending; each occurrence can be linked explicitly through existing controls.
+- Verification: 68 unit/integration tests pass; TypeScript and production build pass. Offline JS/CSS is 277.3 KiB against the 350 KB budget. All three Chrome campaign workflows pass, including ambiguous-date suggestion review, selective binding/undo, typed update/backup and automated mobile accessibility.
+- Recurring duplication, new-user destination defaults, remaining foundation fixtures and actual device/browser release gates remain pending. Release A remains uncertified.
+
+
+## Fifth increment - recurring campaign duplication (15 October 2026)
+
+- Added **Duplicate with new facts** to existing campaigns. Users review every replacement, optionally label the recurrence, and preview each destination body and separate email subject before creating local work. Unchanged values can be explicitly retained.
+- New campaign, fact, draft, occurrence, template and reference identities isolate the recurrence. Local parent lineage is retained; original drafts and recovery history remain unchanged. Independent wording and unbound text remain intact and need manual review.
+- Validates replacement types and values before any writes. Since the schema has no configured link-expiry metadata, every typed URL and legacy link requires explicit expiry/suitability confirmation rather than an inferred expiry claim. No links are fetched and no scheduling is introduced.
+- New work discards copy receipts and destination exceptions and starts fresh fact history/revisions. Original approved-value history remains in the parent campaign.
+- Creation uses the existing atomic campaign/draft/recovery transaction, with additional source campaign and draft revision guards. Stale previews cannot create partially updated work. Draft-limit checks still apply.
+- Workspace backup imports now preserve and remap parent relationships when both campaigns are included; isolated campaign imports continue to discard untrusted external lineage.
+- Verification: 71 unit/integration tests pass; TypeScript and production build pass. All four Chrome campaign workflows pass, including recurrence review, selective replacements, reload/backup lineage and automated 360 px accessibility. Offline JS/CSS remains approximately 279 KiB against the 350 KB budget.
+- Next work: simplify the campaign entry journey, default new users to WhatsApp while retaining existing destination choices, expand remaining suggestion/timezone fixtures and complete real-device/browser release evidence. Release A remains uncertified.
+
+## Sixth increment - core workspace completion (15 October 2026)
+
+- Renamed the optional Studio entry to **Campaign workspace** and collapsed brief/objective fields. Quick Format, shared facts and campaign creation remain directly accessible without completing a brief.
+- New workspace drafts default to WhatsApp. Existing draft destinations and the legacy LinkedIn fallback are preserved. Destination choices persist after opt-in and carry into new messages.
+- Added a session storage layer: draft edits, copy receipts, preferences, reusable text, brand metadata and caret data remain in memory until **Save on this device** is chosen. Existing stored work remains readable. Simple editing, fact review/undo, draft switching, copying and JSON export are usable without opting in. Campaign creation/import and persistent workspace replacement require saving; explicit deletion does not require opting into new writes.
+- Opt-in atomically commits pending drafts, recovery snapshots, reconciled campaign metadata and consent under stored draft revision guards. Conflicts and failed writes leave session work available for export. Damaged raw records, migration payloads and unrelated recovery history are retained. Consent is device-local and is not imported from a backup field.
+- Transient changes warn on unload; service-worker activation cannot reload unsaved session work automatically. Conflict recovery now reads the durable version explicitly, and keeping a copy discards the stale session record after preserving the copy.
+- Suggestions now scan contiguous paragraph text across formatting runs, protecting complete URL spans and stopping at reference atoms, hard breaks and paragraphs. Users choose multiple exact matching occurrences to share one fact; unchecked text and other destination wording remain unchanged. The full change still uses destination preview and one reviewed undo.
+- Added strict Indian/western comma-grouped INR detection with exact decimal preservation. Yearless dates and unsupported forms still require manual confirmation; no year, country or timezone is inferred.
+- Manual time/datetime entry starts with an empty timezone. Datetime validation rejects DST gaps; repeated local times require explicit review in the typed editor while retaining the wall-clock/timezone contract. Standalone time facts explain that overlap checks require a date. Fixtures include New York gaps/overlaps, Lord Howe half-hour changes and Apia's skipped date. This does not enable the checker weekday rule.
+- Unit/integration verification: 84 tests pass across 14 files; TypeScript and production build pass. All 59 Chrome workflows and 9 focused WebKit workflows pass. Firefox cannot create even a blank page in this environment and remains unverified. Offline JS/CSS is approximately 281.5 KiB against the 350 KB budget. See [dated evidence](release-evidence/2026-10-15-core-workspace.md) for browser scope and limitations.
+- Remaining work: baseline/migration requirement tracing, named real mobile/client testing, human screen-reader/keyboard and Hindi/Tamil IME evidence, deployed HTTPS/CSP verification, and the separate checker v1.3 source/fixture dependency. Release A and checker conformance remain uncertified.

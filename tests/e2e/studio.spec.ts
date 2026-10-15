@@ -1,11 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { browserPaste } from './helpers';
+import { browserPaste, openSavedWorkspace } from './helpers';
 const source = (p: Page) => p.getByRole('textbox',{name: 'Post source editor'});
 const output = (p: Page) => p.getByTestId('export-output');
 async function paste(p: Page,text: string) { await source(p).focus(); await p.keyboard.press('Control+a'); await source(p).evaluate(browserPaste,{plain:text}); }
 async function select(p: Page,start: number,length: number) { await source(p).focus(); await p.keyboard.press('Home'); for(let i=0;i<start;i++) await p.keyboard.press('ArrowRight'); for(let i=0;i<length;i++) await p.keyboard.press('Shift+ArrowRight'); }
-test.beforeEach(async ({page}) => { await page.goto('/'); await expect(source(page)).toBeVisible(); });
+test.beforeEach(async ({page}) => { await openSavedWorkspace(page); await expect(source(page)).toBeVisible(); });
 
 test('Quick Format works without a brief; optional Studio metadata and channel edits survive reopening',async ({page}) => {
   await paste(page,'Launch தமிழ் 👨‍👩‍👧‍👦'); await page.keyboard.press('Control+a'); await page.getByRole('button',{name:'Bold',exact:true}).click();
@@ -13,9 +13,9 @@ test('Quick Format works without a brief; optional Studio metadata and channel e
   await page.getByLabel('Destination',{exact:true}).selectOption('whatsapp'); await expect(output(page)).toHaveText('*Launch தமிழ் 👨‍👩‍👧‍👦*');
   await page.getByRole('button',{name:'Edit this version',exact:true}).click(); await paste(page,'WhatsApp wording தமிழ்');
   await page.getByLabel('Destination',{exact:true}).selectOption('linkedin'); await expect(output(page)).toContainText('𝗟𝗮𝘂𝗻𝗰𝗵');
-  await page.getByRole('button',{name:'Prepare a Product Message',exact:true}).click(); await page.getByLabel('Audience',{exact:true}).fill('Working professionals'); await page.getByLabel('Communication objective').selectOption('trial'); await page.getByLabel('Next action / CTA').fill('Register');
+  await page.getByRole('button',{name:'Campaign workspace',exact:true}).click(); await page.locator('.brief-panel summary').click(); await page.getByLabel('Audience',{exact:true}).fill('Working professionals'); await page.getByLabel('Communication objective').selectOption('trial'); await page.getByLabel('Next action / CTA').fill('Register');
   await page.getByRole('button',{name:'Quick Format',exact:true}).click(); await page.getByLabel('Destination',{exact:true}).selectOption('whatsapp'); await expect(output(page)).toHaveText('WhatsApp wording தமிழ்');
-  await expect(page.locator('.save-status')).toContainText('Saved locally'); await page.reload(); await expect(output(page)).toHaveText('WhatsApp wording தமிழ்'); await page.getByRole('button',{name:'Prepare a Product Message',exact:true}).click(); await expect(page.getByLabel('Audience',{exact:true})).toHaveValue('Working professionals');
+  await expect(page.locator('.save-status')).toContainText('Saved locally'); await page.reload(); await expect(output(page)).toHaveText('WhatsApp wording தமிழ்'); await page.getByRole('button',{name:'Campaign workspace',exact:true}).click(); await page.locator('.brief-panel summary').click(); await expect(page.getByLabel('Audience',{exact:true})).toHaveValue('Working professionals');
 });
 
 test('reviewed shared date updates only explicit references and undo restores all outputs',async ({page}) => {
@@ -41,7 +41,7 @@ test('clipboard refusal exposes exact selectable payload and records only confir
 });
 
 test('360px Studio layout, keyboard controls and automatic accessibility checks',async ({page}) => {
-  await page.setViewportSize({width:360,height:800}); await page.getByRole('button',{name:'Prepare a Product Message',exact:true}).click(); await page.getByLabel('Communication objective').selectOption('trial'); await page.getByLabel('Audience',{exact:true}).fill('Founders');
+  await page.setViewportSize({width:360,height:800}); await page.getByRole('button',{name:'Campaign workspace',exact:true}).click(); await page.locator('.brief-panel summary').click(); await page.getByLabel('Communication objective').selectOption('trial'); await page.getByLabel('Audience',{exact:true}).fill('Founders');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const result = await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze(); expect(result.violations).toEqual([]);
   await page.screenshot({path:'test-results/message-studio-mobile.png',fullPage:true});

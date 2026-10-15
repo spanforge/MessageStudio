@@ -1,8 +1,8 @@
 ﻿import { expect, test } from '@playwright/test';
-import { browserPaste } from './helpers';
+import { browserPaste, openSavedWorkspace } from './helpers';
 
 test('preview version determines clipboard output', async ({ page }) => {
-  await page.goto('/');
+  await openSavedWorkspace(page);
   const editor = page.getByRole('textbox', { name: 'Post source editor' });
   await editor.evaluate(browserPaste, { plain: 'Hello world' });
   await page.getByLabel('Opt in to Unicode emphasis').check(); await editor.focus(); await page.keyboard.press('Control+a');
@@ -18,7 +18,7 @@ test('preview version determines clipboard output', async ({ page }) => {
 });
 
 test('mobile tabs support keyboard and copy stays visible for long drafts', async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 760 }); await page.goto('/');
+  await page.setViewportSize({ width: 320, height: 760 }); await openSavedWorkspace(page);
   await page.getByRole('textbox', { name: 'Post source editor' }).evaluate(browserPaste, { plain: 'A thought worth sharing.\n'.repeat(50) });
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Write', exact: true }).focus(); await page.keyboard.press('ArrowRight');
@@ -32,7 +32,7 @@ test('mobile tabs support keyboard and copy stays visible for long drafts', asyn
 });
 
 test('draft search finds content and actions stay available', async ({ page }) => {
-  await page.goto('/');
+  await openSavedWorkspace(page);
   await page.getByRole('textbox', { name: 'Post source editor' }).evaluate(browserPaste, { plain: 'A unique searchable thought' });
   await expect(page.locator('.save-status')).toContainText('Saved locally');
   await page.getByRole('button', { name: /Drafts/ }).click();
@@ -45,7 +45,7 @@ test('draft search finds content and actions stay available', async ({ page }) =
 });
 for (const width of [1280, 320]) {
   test(`clear draft confirms and Undo restores text and formatting at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 760 }); await page.goto('/');
+    await page.setViewportSize({ width, height: 760 }); await openSavedWorkspace(page);
     const editor = page.getByRole('textbox', { name: 'Post source editor' });
     const clear = page.locator('.editor-bottom').getByRole('button', { name: 'Clear draft', exact: true });
     await expect(clear).toBeDisabled();
@@ -71,7 +71,7 @@ for (const width of [1280, 320]) {
 }
 for (const width of [1280, 768, 320]) {
   test(`expanded draft actions preserve readable content at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 800 }); await page.goto('/');
+    await page.setViewportSize({ width, height: 800 }); await openSavedWorkspace(page);
     await page.getByRole('textbox', { name: 'Post source editor' }).evaluate(browserPaste, { plain: 'A draft preview that should stay readable when Actions opens.' });
     await expect(page.locator('.save-status')).toContainText('Saved locally');
     await page.getByRole('button', { name: /Drafts/ }).click();
@@ -99,7 +99,7 @@ async function storedDraftIds(page: import('@playwright/test').Page): Promise<st
 }
 
 test('deleting empty drafts removes the selected draft and never recreates the last one', async ({ page }) => {
-  await page.goto('/');
+  await openSavedWorkspace(page);
   await page.getByRole('button', { name: 'New message', exact: true }).click();
   await expect.poll(() => storedDraftIds(page)).toHaveLength(1);
   const [first] = await storedDraftIds(page);
@@ -122,7 +122,7 @@ test('deleting empty drafts removes the selected draft and never recreates the l
 });
 
 test('delete all drafts works with empty drafts and remains empty after reload', async ({ page }) => {
-  await page.goto('/'); await page.getByRole('button', { name: 'New message', exact: true }).click();
+  await openSavedWorkspace(page); await page.getByRole('button', { name: 'New message', exact: true }).click();
   await expect.poll(() => storedDraftIds(page)).toHaveLength(1);
   await page.getByRole('button', { name: /Drafts/ }).click();
   await page.getByRole('button', { name: 'Delete all drafts', exact: true }).click();
@@ -135,7 +135,7 @@ test('delete all drafts works with empty drafts and remains empty after reload',
 });
 
 test('mobile Write view offers plain copy without changing the preview version', async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 760 }); await page.goto('/');
+  await page.setViewportSize({ width: 320, height: 760 }); await openSavedWorkspace(page);
   const editor = page.getByRole('textbox', { name: 'Post source editor' });
   await editor.evaluate(browserPaste, { plain: 'Hello mixed text' });
   await page.getByLabel('Opt in to Unicode emphasis').check(); await editor.focus(); await page.keyboard.press('Control+a'); await page.keyboard.press('Control+b');
@@ -149,7 +149,7 @@ test('mobile Write view offers plain copy without changing the preview version',
 });
 
 test('draft search can recover from no results', async ({ page }) => {
-  await page.goto('/'); await page.getByRole('button', { name: 'New message', exact: true }).click();
+  await openSavedWorkspace(page); await page.getByRole('button', { name: 'New message', exact: true }).click();
   await page.getByRole('button', { name: /Drafts/ }).click();
   await page.getByLabel('Search drafts').fill('nothing matches');
   await expect(page.getByText('No matching drafts. Your saved drafts are still here.')).toBeVisible();
@@ -158,7 +158,7 @@ test('draft search can recover from no results', async ({ page }) => {
 });
 
 test('delete all drafts preserves saved text and appearance, and disables with zero drafts', async ({ page }) => {
-  await page.goto('/');
+  await openSavedWorkspace(page);
   await page.getByRole('button', { name: 'Switch to dark appearance' }).click();
   await page.getByRole('button', { name: /Saved text/ }).click();
   await page.getByLabel('Name', { exact: true }).fill('Signature'); await page.getByLabel('Plain text', { exact: true }).fill('Regards');
@@ -175,7 +175,7 @@ test('delete all drafts preserves saved text and appearance, and disables with z
 });
 
 test('Drafts main menu enables only when a draft is available', async ({ page }) => {
-  await page.goto('/');
+  await openSavedWorkspace(page);
   const menu = page.getByRole('button', { name: /Drafts/ });
   await expect(menu).toBeDisabled();
   await page.getByRole('button', { name: 'New message', exact: true }).click();
@@ -186,7 +186,7 @@ test('Drafts main menu enables only when a draft is available', async ({ page })
 });
 
 test('strikethrough copies a middle stroke and toggles off on imported bold letters', async ({ page }) => {
-  await page.goto('/');
+  await openSavedWorkspace(page);
   const editor = page.getByRole('textbox', { name: 'Post source editor' });
   const text = String.fromCodePoint(0x1d5db, 0x1d5f2, 0x1d5f9, 0x1d5f9, 0x1d5fc);
   await editor.evaluate(browserPaste, { plain: text });
